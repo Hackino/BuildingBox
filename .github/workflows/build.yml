@@ -127,6 +127,23 @@ jobs:
             set -o pipefail
           fi
 
+      # The desktop app reads desktop-firebase.properties at runtime (Firebase REST
+      # config). Bake it into the package so the shipped installer is ready to run.
+      # Optional: skip silently if the secret isn't set.
+      - name: Restore desktop-firebase.properties (optional)
+        env:
+          DF: ${{ secrets.DESKTOP_FIREBASE_PROPERTIES_BASE64 }}
+        run: |
+          if [ -n "$DF" ]; then
+            set +o pipefail
+            printf '%s' "$DF" | tr -d '[:space:]' | base64 -d > composeApp/desktop-firebase.properties 2>/dev/null \
+              && grep -q 'firebase.apiKey' composeApp/desktop-firebase.properties \
+              || echo "::warning::Could not decode DESKTOP_FIREBASE_PROPERTIES_BASE64; the packaged app will need the file supplied at runtime."
+            set -o pipefail
+          else
+            echo "::notice::DESKTOP_FIREBASE_PROPERTIES_BASE64 not set; packaging without it (app needs the file at runtime)."
+          fi
+
       # jpackage needs WiX 3 to produce Windows installers.
       - name: Install WiX (Windows)
         if: runner.os == 'Windows'
@@ -160,4 +177,4 @@ jobs:
 
       - name: Clean up secret files
         if: always()
-        run: rm -f composeApp/google-services.json
+        run: rm -f composeApp/google-services.json composeApp/desktop-firebase.properties
