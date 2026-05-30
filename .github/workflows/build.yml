@@ -4,9 +4,8 @@ name: Build apps
 # All credentials come from GitHub Actions secrets (configure them in your fork's
 # Settings → Secrets and variables → Actions). No secret is ever stored in the repo.
 
+# Manual only: runs when you press "Run workflow" on the Actions tab.
 on:
-  pull_request:
-    branches: [main]
   workflow_dispatch: {}
 
 permissions:
@@ -14,9 +13,45 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------------------
+  # Preflight — verify required secrets BEFORE any checkout/JDK/build work.
+  # If a required secret is missing, this fails immediately and (because every
+  # build job `needs` it) nothing else runs — no runner time wasted on setup.
+  # ---------------------------------------------------------------------------
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify required secrets are present
+        env:
+          GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_STORE_PASSWORD: ${{ secrets.KEYSTORE_STORE_PASSWORD }}
+          KEYSTORE_KEY_ALIAS: ${{ secrets.KEYSTORE_KEY_ALIAS }}
+          KEYSTORE_KEY_PASSWORD: ${{ secrets.KEYSTORE_KEY_PASSWORD }}
+          DESKTOP_FIREBASE_PROPERTIES_BASE64: ${{ secrets.DESKTOP_FIREBASE_PROPERTIES_BASE64 }}
+        run: |
+          missing=""
+          for name in \
+            GOOGLE_SERVICES_JSON_BASE64 \
+            KEYSTORE_BASE64 \
+            KEYSTORE_STORE_PASSWORD \
+            KEYSTORE_KEY_ALIAS \
+            KEYSTORE_KEY_PASSWORD \
+            DESKTOP_FIREBASE_PROPERTIES_BASE64; do
+            # Indirect expansion: check whether the env var of that name is empty.
+            if [ -z "${!name}" ]; then missing="$missing $name"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing required secret(s):$missing"
+            echo "::error::Add them in Settings → Secrets and variables → Actions, then re-run."
+            exit 1
+          fi
+          echo "All required secrets are present."
+
+  # ---------------------------------------------------------------------------
   # Android — signed release APK (ubuntu)
   # ---------------------------------------------------------------------------
   android:
+    needs: preflight
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -91,6 +126,7 @@ jobs:
   #   windows-latest → .msi/.exe   macos-latest → .dmg   ubuntu-latest → .deb
   # ---------------------------------------------------------------------------
   desktop:
+    needs: preflight
     strategy:
       fail-fast: false
       matrix:
