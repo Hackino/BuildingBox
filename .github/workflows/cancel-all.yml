@@ -1,0 +1,32 @@
+name: Cancel all runs
+
+# One-button kill switch: cancels every queued or in-progress workflow run in
+# this repo (except this run itself). Press "Run workflow" on the Actions tab.
+
+on:
+    workflow_dispatch: {}
+
+permissions:
+    actions: write
+
+jobs:
+    cancel:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Cancel all queued and in-progress runs
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPO: ${{ github.repository }}
+                  SELF: ${{ github.run_id }}
+              run: |
+                  for status in in_progress queued; do
+                    gh run list --repo "$REPO" --status "$status" --limit 100 \
+                      --json databaseId --jq '.[].databaseId' \
+                    | while read -r id; do
+                        if [ "$id" != "$SELF" ]; then
+                          echo "Cancelling run $id"
+                          gh run cancel "$id" --repo "$REPO" || true
+                        fi
+                      done
+                  done
+                  echo "Done."

@@ -111,6 +111,18 @@
 -dontwarn org.bouncycastle.**
 -dontwarn javax.imageio.**
 
+# Skiko bundles JBR-only entry points whose descriptor classes aren't on the
+# classpath; and PDFBox/other libs reference assorted optional deps. ProGuard 7.7
+# treats unresolved refs as fatal, so silence them broadly.
+-dontwarn com.jetbrains.**
+-dontwarn org.jetbrains.skiko.**
+-dontwarn org.apache.commons.**
+-dontwarn org.apache.logging.**
+-dontwarn com.google.**
+-dontwarn javax.**
+-dontwarn java.awt.**
+-ignorewarnings
+
 # ============================================================================
 # Koin — resolves by KClass / constructor refs (no reflection on our types).
 # No keep rules required; left here as documentation.
