@@ -14,6 +14,38 @@ Single Gradle module: `composeApp`. Clean‑architecture, feature‑based.
 
 ---
 
+## Screenshots
+
+<table>
+  <tr>
+    <td align="center"><img src="screenshots/00-login.png" width="210" alt="Login screen"/><br/><sub><b>Login</b></sub></td>
+    <td align="center"><img src="screenshots/01-home.png" width="210" alt="Home dashboard"/><br/><sub><b>Home</b></sub></td>
+    <td align="center"><img src="screenshots/02-payments.png" width="210" alt="Payments list"/><br/><sub><b>Payments</b></sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="screenshots/04-units.png" width="210" alt="Apartments list"/><br/><sub><b>Apartments</b></sub></td>
+    <td align="center"><img src="screenshots/04b-unit-detail.png" width="210" alt="Apartment detail"/><br/><sub><b>Apartment detail</b></sub></td>
+    <td align="center"><img src="screenshots/03-calendar-month.png" width="210" alt="Monthly calendar"/><br/><sub><b>Calendar</b></sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="screenshots/03c-add-due.png" width="210" alt="Add a due"/><br/><sub><b>Add due</b></sub></td>
+    <td align="center"><img src="screenshots/06-reports.png" width="210" alt="Reports"/><br/><sub><b>Reports</b></sub></td>
+    <td align="center"></td>
+  </tr>
+</table>
+
+**Dark theme**
+
+<table>
+  <tr>
+    <td align="center"><img src="screenshots/07-home-dark.png" width="210" alt="Home dashboard (dark)"/><br/><sub><b>Home</b></sub></td>
+    <td align="center"><img src="screenshots/08-payments-dark.png" width="210" alt="Payments (dark)"/><br/><sub><b>Payments</b></sub></td>
+    <td align="center"><img src="screenshots/09-reports-dark.png" width="210" alt="Reports (dark)"/><br/><sub><b>Reports</b></sub></td>
+  </tr>
+</table>
+
+---
+
 ## Table of contents
 1. [Prerequisites](#1-prerequisites)
 2. [Get the code](#2-get-the-code)
