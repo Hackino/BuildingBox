@@ -1,21 +1,41 @@
-# Gradle / build
+# ============================================================
+#  Gradle / build
+# ============================================================
 .gradle/
 build/
 **/build/
 .kotlin/
 local.properties
 
-# Secrets (provided per-machine, never commit)
-composeApp/google-services.json
-composeApp/desktop-firebase.properties
-**/GoogleService-Info.plist
+# ============================================================
+#  SECRETS — never commit. These repos may be public.
+#  In CI, these files are recreated from GitHub Actions secrets.
+# ============================================================
 
-# Signing (provided per-machine, never commit)
+# Firebase (per-client, different for each buyer)
+**/google-services.json
+**/GoogleService-Info.plist
+**/desktop-firebase.properties
+
+# Signing (keystore can be shared; the file + passwords stay secret)
 keystore.properties
+**/keystore.properties
 **/*.keystore
 **/*.jks
+**/*.p12
+**/*.jks.b64
+**/*.keystore.b64
 
-# IDE
+# Env / misc secrets
+.env
+.env.*
+*.pem
+secrets/
+*.secrets.properties
+
+# ============================================================
+#  IDE / OS
+# ============================================================
 .idea/
 *.iml
 .DS_Store
@@ -23,3 +43,32 @@ keystore.properties
 # Xcode
 xcuserdata/
 *.xcworkspace/xcuserdata/
+
+# ============================================================
+#  Packaged apps / build artifacts — NEVER COMMIT
+#  Most land under build/ (ignored above); these patterns also
+#  block a binary copied anywhere else (e.g. the repo root).
+# ============================================================
+
+# Android
+*.apk
+*.aab
+*.apks
+*.aar
+
+# iOS
+*.ipa
+*.xcarchive
+
+# Desktop installers / distributables (jpackage output)
+*.msi
+*.exe
+*.dmg
+*.pkg
+*.deb
+*.rpm
+*.app
+
+# Runnable JVM bundles
+*-uber.jar
+*.jar.uber
