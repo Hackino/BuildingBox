@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Post-splash app theme: edge-to-edge, no action bar; Compose draws everything. -->
+    <style name="Theme.BuildingBox" parent="@android:style/Theme.Material.Light.NoActionBar" />
+
+    <!-- Launch theme using the AndroidX SplashScreen API (core-splashscreen, back to minSdk 24). -->
+    <style name="Theme.BuildingBox.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/splash_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_logo</item>
+        <item name="postSplashScreenTheme">@style/Theme.BuildingBox</item>
+    </style>
+</resources>

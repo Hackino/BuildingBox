@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="brand_accent">#12A88A</color>
+    <color name="brand_accent_strong">#0E8E76</color>
+    <!-- App background (light) — splash canvas the logo sits on. -->
+    <color name="splash_background">#F4F6F8</color>
+</resources>
