@@ -18,9 +18,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -74,10 +77,18 @@ fun UnitDetail(
     val duesRepo = koinInject<DuesRepository>()
     val scope = rememberCoroutineScope()
 
+    // rangeMonths drives how many months back we show. Presets set it directly;
+    // the "by year" picker sets it to the count of months from January of the
+    // chosen year up to the current month. selectedYear is null while a preset is active.
     var rangeMonths by remember { mutableStateOf(12) }
+    var selectedYear by remember { mutableStateOf<Int?>(null) }
     val allDues by remember(apartment.id) {
         duesRepo.observeAll().map { all -> all.filter { it.apartmentId == apartment.id } }
     }.collectAsStateWithLifecycle(emptyList())
+    val currentYear = currentMonth().take(4).toInt()
+    val currentMonthNum = currentMonth().substring(5, 7).toInt()
+    // Year picker always offers 2024 → current year (never a future year).
+    val earliestYear = minOf(2024, currentYear)
     val months = remember(rangeMonths) { (0 until rangeMonths).map { shiftMonth(currentMonth(), -it) } }
     val history = remember(allDues, months) { months.map { m -> aggregate(apartment.id, m, allDues.filter { it.month == m }) } }
     val currentStatus = history.firstOrNull { it.month == currentMonth() }?.status
@@ -122,11 +133,28 @@ fun UnitDetail(
             Text("Payment history", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 20.dp, top = 8.dp, bottom = 4.dp))
         }
         item {
-            Box(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 SegmentedControl(
-                    options = listOf(6 to "6 mo", 12 to "1 year", 24 to "2 years"),
-                    selected = rangeMonths,
-                    onSelect = { rangeMonths = it },
+                    // -1 = no preset highlighted while a custom year is active.
+                    options = listOf(6 to "6 mo", 12 to "1 year"),
+                    selected = if (selectedYear == null) rangeMonths else -1,
+                    onSelect = { rangeMonths = it; selectedYear = null },
+                    // weight(1f) so the segmented control shares the row instead of
+                    // taking fillMaxWidth and pushing YearPicker off-screen.
+                    modifier = Modifier.weight(1f),
+                )
+                YearPicker(
+                    selectedYear = selectedYear,
+                    years = (earliestYear..currentYear).reversed().toList(),
+                    onSelectYear = { y ->
+                        selectedYear = y
+                        // Months from January of year y through the current month, inclusive.
+                        rangeMonths = (currentYear - y) * 12 + currentMonthNum
+                    },
                 )
             }
         }
@@ -145,6 +173,48 @@ fun UnitDetail(
             },
             onDelete = if (due != null && !due.base) ({ scope.launch { duesRepo.removeDue(due) }; dueTarget = null }) else null,
         )
+    }
+}
+
+/** A segmented-style chip that opens a dropdown of selectable years (newest first). */
+@Composable
+private fun YearPicker(
+    selectedYear: Int?,
+    years: List<Int>,
+    onSelectYear: (Int) -> Unit,
+) {
+    val c = LocalAppColors.current
+    var open by remember { mutableStateOf(false) }
+    Box {
+        Row(
+            Modifier
+                .clip(RoundedCornerShape(12.dp))
+                .background(if (selectedYear != null) c.accent else c.surfaceInset)
+                .clickable { open = true }
+                .padding(vertical = 10.dp, horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                selectedYear?.let { "From $it" } ?: "By year",
+                color = if (selectedYear != null) Color.White else c.textSecondary,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = if (selectedYear != null) FontWeight.Bold else FontWeight.Medium,
+            )
+            Icon(
+                Icons.Filled.ArrowDropDown, null,
+                tint = if (selectedYear != null) Color.White else c.textSecondary,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            years.forEach { y ->
+                DropdownMenuItem(
+                    text = { Text(y.toString(), fontWeight = if (y == selectedYear) FontWeight.Bold else FontWeight.Normal) },
+                    onClick = { onSelectYear(y); open = false },
+                )
+            }
+        }
     }
 }
 

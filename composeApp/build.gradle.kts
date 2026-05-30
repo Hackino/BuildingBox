@@ -90,6 +90,9 @@ kotlin {
             implementation(libs.ktor.client.cio)
             implementation(libs.ktor.client.content.negotiation)
             implementation(libs.ktor.serialization.json)
+            // PDF report export — Graphics2D bridge lets us reuse the Android draw code.
+            implementation(libs.pdfbox)
+            implementation(libs.pdfbox.graphics2d)
         }
     }
 }

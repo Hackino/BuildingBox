@@ -96,6 +96,22 @@
 -dontwarn org.slf4j.**
 
 # ============================================================================
+# Apache PDFBox / FontBox / pdfbox-graphics2d (desktop PDF report export).
+# PDFBox loads resources (glyph lists, ICC profiles) and uses some reflection;
+# keep its packages and silence warnings about its optional deps.
+# ============================================================================
+-keep class org.apache.pdfbox.** { *; }
+-keep class org.apache.fontbox.** { *; }
+-keep class de.rototor.pdfbox.** { *; }
+-keepclassmembers class org.apache.pdfbox.** { *; }
+-dontwarn org.apache.pdfbox.**
+-dontwarn org.apache.fontbox.**
+-dontwarn de.rototor.pdfbox.**
+# PDFBox optionally references these; absent on our classpath — don't fail R8.
+-dontwarn org.bouncycastle.**
+-dontwarn javax.imageio.**
+
+# ============================================================================
 # Koin — resolves by KClass / constructor refs (no reflection on our types).
 # No keep rules required; left here as documentation.
 # ============================================================================
