@@ -33,7 +33,11 @@ cd "$ROOT"
 GS="composeApp/google-services.json"
 KS="composeApp/buildingbox.keystore"
 KP="keystore.properties"
-DF="composeApp/desktop-firebase.properties"
+# desktop-firebase.properties: restore-secrets.sh writes it to BOTH the bundled
+# resources dir and the top-level dev copy. Prefer the bundled one, fall back to dev.
+DF_BUNDLED="composeApp/desktop-resources/common/desktop-firebase.properties"
+DF_DEV="composeApp/desktop-firebase.properties"
+DF="$DF_DEV"; [ -f "$DF_BUNDLED" ] && DF="$DF_BUNDLED"
 README="scripts/secrets.config.README.md"
 OUT="secrets/config.json"
 GH_OUT="secrets/github-secrets.txt"

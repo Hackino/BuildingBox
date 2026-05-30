@@ -37,13 +37,24 @@ import java.util.Properties
 private data class DesktopFirebaseConfig(val apiKey: String, val databaseUrl: String)
 
 private fun loadConfig(): DesktopFirebaseConfig {
-    val candidates = listOf(
-        File("desktop-firebase.properties"),
-        File("composeApp/desktop-firebase.properties"),
-        File("mobile/composeApp/desktop-firebase.properties"),
-    )
+    // In a packaged app the file is bundled via appResourcesRootDir; Compose exposes
+    // that location at runtime through this system property. The relative paths only
+    // resolve when launched from the project root (./gradlew :composeApp:run), and a
+    // user-home copy lets an end user drop the file in without repackaging.
+    val resourcesDir = System.getProperty("compose.application.resources.dir")
+    val candidates = buildList {
+        resourcesDir?.let { add(File(it, "desktop-firebase.properties")) }
+        add(File(System.getProperty("user.home"), ".buildingbox/desktop-firebase.properties"))
+        add(File("desktop-firebase.properties"))
+        add(File("composeApp/desktop-firebase.properties"))
+        add(File("mobile/composeApp/desktop-firebase.properties"))
+    }
     val file = candidates.firstOrNull { it.exists() }
-        ?: error("desktop-firebase.properties not found ")
+        ?: error(
+            "desktop-firebase.properties not found. Looked in the bundled app resources, " +
+                "~/.buildingbox/, and the project tree. Run scripts/restore-secrets.sh, or place " +
+                "the file at ~/.buildingbox/desktop-firebase.properties.",
+        )
     val props = Properties().apply { file.inputStream().use { load(it) } }
     return DesktopFirebaseConfig(
         apiKey = props.getProperty("firebase.apiKey").orEmpty(),

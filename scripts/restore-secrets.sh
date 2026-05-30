@@ -10,10 +10,13 @@
 #   or pass a path:        ./restore-secrets.sh path/to/config.json
 #
 # Writes (all gitignored, overwritten):
-#   composeApp/google-services.json        (written from the googleServicesJson object)
-#   composeApp/buildingbox.keystore        (decoded from keystoreBase64, OR generated fresh)
-#   keystore.properties                    (from keystoreStorePassword / keyAlias / keyPassword)
-#   composeApp/desktop-firebase.properties (from desktopFirebase.*, only if filled in)
+#   composeApp/google-services.json                          (from the googleServicesJson object)
+#   composeApp/buildingbox.keystore                          (decoded from keystoreBase64, OR generated fresh)
+#   keystore.properties                                      (from keystoreStorePassword / keyAlias / keyPassword)
+#   composeApp/desktop-firebase.properties                   (desktop dev run from project root)
+#   composeApp/desktop-resources/common/desktop-firebase.properties
+#                                                            (BUNDLED into the packaged desktop app so
+#                                                             it's found on any device, any working dir)
 #
 set -euo pipefail
 
@@ -107,15 +110,29 @@ EOF
 chmod 600 keystore.properties
 
 # --- desktop-firebase.properties (OPTIONAL) ----------------------------------
+# Written to TWO places:
+#   1. composeApp/                       — for `./gradlew :composeApp:run` from the project root.
+#   2. composeApp/desktop-resources/common/ — bundled (appResourcesRootDir) into the packaged
+#      app so loadConfig() finds it via compose.application.resources.dir on ANY device.
 DF_STATUS=""
 if ! is_unset "$DF_API" && ! is_unset "$DF_URL" && ! is_unset "$DF_PROJ"; then
-  cat > composeApp/desktop-firebase.properties <<EOF
+  # `umask 177` (set above for secret files) also strips the execute bit from any
+  # dirs mkdir creates, leaving them non-traversable. Create the tree, then restore
+  # 700 so files can be written into it.
+  mkdir -p composeApp/desktop-resources/common
+  chmod 700 composeApp/desktop-resources composeApp/desktop-resources/common
+  for dest in composeApp/desktop-firebase.properties composeApp/desktop-resources/common/desktop-firebase.properties; do
+    # Clear any prior copy first: overwriting can fail if an earlier run left the
+    # file read-only/locked, but removing only needs write perm on the directory.
+    rm -f "$dest" 2>/dev/null || true
+    cat > "$dest" <<EOF
 firebase.apiKey=$DF_API
 firebase.databaseUrl=$DF_URL
 firebase.projectId=$DF_PROJ
 EOF
-  chmod 600 composeApp/desktop-firebase.properties
-  DF_STATUS="composeApp/desktop-firebase.properties  (from config)"
+    chmod 600 "$dest"
+  done
+  DF_STATUS="composeApp/desktop-firebase.properties + desktop-resources/common/ (bundled)"
 fi
 
 echo "Generated (all gitignored):"
