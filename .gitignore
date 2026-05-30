@@ -1,0 +1,25 @@
+# Gradle / build
+.gradle/
+build/
+**/build/
+.kotlin/
+local.properties
+
+# Secrets (provided per-machine, never commit)
+composeApp/google-services.json
+composeApp/desktop-firebase.properties
+**/GoogleService-Info.plist
+
+# Signing (provided per-machine, never commit)
+keystore.properties
+**/*.keystore
+**/*.jks
+
+# IDE
+.idea/
+*.iml
+.DS_Store
+
+# Xcode
+xcuserdata/
+*.xcworkspace/xcuserdata/
