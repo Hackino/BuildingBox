@@ -157,7 +157,8 @@ and `*.keystore` are gitignored.
 ## 5. Desktop config (optional)
 
 The desktop app can't read `google-services.json`; it talks to Firebase over REST.
-Copy `config/desktop-firebase.example.properties` to `composeApp/desktop-firebase.properties`:
+Generate `composeApp/desktop-firebase.properties` with `scripts/restore-secrets.sh` (it
+writes it from `secrets/config.json`). Its contents look like:
 ```properties
 firebase.apiKey=YOUR_WEB_API_KEY            # Console → Project settings → General → Web API Key
 firebase.databaseUrl=https://<id>-default-rtdb.<region>.firebasedatabase.app
@@ -258,7 +259,7 @@ at the end.
 
 **Safe to commit (no secrets):**
 - All source code, `firebase/database.rules.json`, `keystore.properties.example`,
-  `config/desktop-firebase.example.properties`, the GitHub Actions workflow.
+  the GitHub Actions workflow, and `scripts/secrets.config.README.md` (the secrets template).
 
 Before pushing, sanity‑check nothing secret is staged:
 ```bash
@@ -282,7 +283,7 @@ composeApp/
 firebase/                    database.rules.json + firebase.json
 .github/workflows/build.yml  CI: signed APK + desktop installers (secrets → artifacts)
 keystore.properties.example  signing template (copy to keystore.properties)
-config/                      example config templates
+scripts/                     init/restore/export-secrets.sh + secrets.config.README.md
 ```
 
 - **Money** is stored as integers (`usdCents`, `lbp`) — never converted between currencies.

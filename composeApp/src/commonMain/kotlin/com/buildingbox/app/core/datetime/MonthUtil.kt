@@ -1,6 +1,5 @@
 package com.buildingbox.app.core.datetime
 
-import kotlinx.datetime.Clock
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
@@ -8,6 +7,8 @@ import kotlinx.datetime.isoDayNumber
 import kotlinx.datetime.minus
 import kotlinx.datetime.plus
 import kotlinx.datetime.todayIn
+import kotlin.time.Clock
+import kotlin.time.ExperimentalTime
 
 private val MONTH_NAMES = listOf(
     "January", "February", "March", "April", "May", "June",
@@ -15,6 +16,7 @@ private val MONTH_NAMES = listOf(
 )
 
 /** ISO date today, "YYYY-MM-DD". */
+@OptIn(ExperimentalTime::class)
 fun today(): String = Clock.System.todayIn(TimeZone.currentSystemDefault()).toString()
 
 /** Current month, "YYYY-MM". */

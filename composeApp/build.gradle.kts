@@ -61,7 +61,7 @@ kotlin {
             implementation(compose.preview)
             implementation(libs.androidx.activity.compose)
             implementation(libs.androidx.core.splashscreen)
-            implementation("androidx.core:core-ktx:1.13.1")
+            implementation(libs.androidx.core.ktx)
             implementation(libs.koin.android)
 
             implementation(project.dependencies.platform(libs.firebase.bom))
@@ -82,6 +82,10 @@ kotlin {
         desktopMain.dependencies {
             implementation(compose.desktop.currentOs)
             implementation(libs.kotlinx.coroutines.core)
+            // Provides Dispatchers.Main on the JVM desktop target (backed by the AWT/Swing
+            // event dispatch thread). Without it, viewModelScope crashes with
+            // "Module with the Main dispatcher is missing".
+            implementation(libs.kotlinx.coroutines.swing)
             implementation(libs.ktor.client.core)
             implementation(libs.ktor.client.cio)
             implementation(libs.ktor.client.content.negotiation)
@@ -131,7 +135,7 @@ android {
 
     buildTypes {
         getByName("debug") {
-            signingConfig = signingConfigs.getByName("buildingbox")
+            signingConfig = signingConfigs.getByName("debug")
         }
         getByName("release") {
             isMinifyEnabled = true
@@ -153,15 +157,48 @@ compose.resources {
 compose.desktop {
     application {
         mainClass = "com.buildingbox.app.MainKt"
+
+        // Shrinks the bundled JVM jars (Compose, Ktor, kotlinx, app code) in the
+        // *release* package tasks. Keep rules live in compose-desktop.pro.
+        // Obfuscation stays OFF for now (lower risk, still shrinks); flip to true
+        // only after the runtime smoke test passes. ProGuard breakage is runtime-
+        // only, so test sign-in / RTDB reads / report export on a release build.
+        buildTypes.release.proguard {
+            configurationFiles.from(project.file("compose-desktop.pro"))
+            obfuscate.set(false)
+            optimize.set(true)
+        }
+
         nativeDistributions {
             targetFormats(TargetFormat.Msi, TargetFormat.Exe, TargetFormat.Dmg, TargetFormat.Deb)
             packageName = "BuildingBox"
             packageVersion = "1.0.0"
 
-            val iconsDir = project.file("src/desktopMain/resources")
-            macOS { iconFile.set(iconsDir.resolve("icon.icns")) }
-            windows { iconFile.set(iconsDir.resolve("icon.ico")) }
-            linux { iconFile.set(iconsDir.resolve("icon.png")) }
+            // Trim the bundled runtime: only the modules jpackage detects, plus the
+            // explicit ones below. java.desktop → AWT (report export opens files);
+            // jdk.unsupported → sun.misc.Unsafe used by some coroutine/Skiko paths.
+            includeAllModules = false
+            modules("java.desktop", "java.management", "jdk.unsupported")
+
+            // Files placed under desktop-resources/common/ are bundled into the app and
+            // exposed at runtime via System.getProperty("compose.application.resources.dir").
+            // desktop-firebase.properties lives there (written by scripts/restore-secrets.sh
+            // and the CI workflow) so the packaged app can read it — see loadConfig().
+            appResourcesRootDir.set(project.file("desktop-resources"))
+
+            macOS { iconFile.set(project.file("src/desktopMain/resources/icon.icns")) }
+            windows {
+                iconFile.set(project.file("src/desktopMain/resources/icon.ico"))
+                // Installer UX: offer a Desktop shortcut + Start-menu entry, and let the
+                // user pick the install directory.
+                shortcut = true
+                menu = true
+                menuGroup = "BuildingBox"
+                dirChooser = true
+                // Stable upgrade UUID so new installers replace the old version cleanly.
+                upgradeUuid = "8B6F9C2A-1D3E-4F5A-9B7C-2E4D6A8F0C13"
+            }
+            linux { iconFile.set(project.file("src/desktopMain/resources/icon.png")) }
         }
     }
 }
