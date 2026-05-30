@@ -61,7 +61,7 @@ kotlin {
             implementation(compose.preview)
             implementation(libs.androidx.activity.compose)
             implementation(libs.androidx.core.splashscreen)
-            implementation("androidx.core:core-ktx:1.13.1")
+            implementation(libs.androidx.core.ktx)
             implementation(libs.koin.android)
 
             implementation(project.dependencies.platform(libs.firebase.bom))
@@ -82,6 +82,10 @@ kotlin {
         desktopMain.dependencies {
             implementation(compose.desktop.currentOs)
             implementation(libs.kotlinx.coroutines.core)
+            // Provides Dispatchers.Main on the JVM desktop target (backed by the AWT/Swing
+            // event dispatch thread). Without it, viewModelScope crashes with
+            // "Module with the Main dispatcher is missing".
+            implementation(libs.kotlinx.coroutines.swing)
             implementation(libs.ktor.client.core)
             implementation(libs.ktor.client.cio)
             implementation(libs.ktor.client.content.negotiation)
@@ -131,7 +135,7 @@ android {
 
     buildTypes {
         getByName("debug") {
-            signingConfig = signingConfigs.getByName("buildingbox")
+            signingConfig = signingConfigs.getByName("debug")
         }
         getByName("release") {
             isMinifyEnabled = true

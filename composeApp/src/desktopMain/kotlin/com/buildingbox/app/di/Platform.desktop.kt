@@ -43,7 +43,7 @@ private fun loadConfig(): DesktopFirebaseConfig {
         File("mobile/composeApp/desktop-firebase.properties"),
     )
     val file = candidates.firstOrNull { it.exists() }
-        ?: error("desktop-firebase.properties not found (copy config/desktop-firebase.example.properties to composeApp/desktop-firebase.properties)")
+        ?: error("desktop-firebase.properties not found ")
     val props = Properties().apply { file.inputStream().use { load(it) } }
     return DesktopFirebaseConfig(
         apiKey = props.getProperty("firebase.apiKey").orEmpty(),
