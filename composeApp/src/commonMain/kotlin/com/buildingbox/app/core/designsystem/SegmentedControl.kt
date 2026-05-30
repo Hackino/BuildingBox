@@ -32,17 +32,20 @@ fun <T> SegmentedControl(
     modifier: Modifier = Modifier,
 ) {
     val c = LocalAppColors.current
-    val index = options.indexOfFirst { it.first == selected }.coerceAtLeast(0)
+    // -1 (no match) means "nothing selected" — hide the sliding thumb entirely.
+    val index = options.indexOfFirst { it.first == selected }
 
     BoxWithConstraints(
         modifier.fillMaxWidth().clip(RoundedCornerShape(50)).background(c.surfaceInset).padding(4.dp),
     ) {
         val segWidth = maxWidth / options.size
-        val offset by animateDpAsState(segWidth * index)
+        val offset by animateDpAsState(segWidth * index.coerceAtLeast(0))
 
-        androidx.compose.foundation.layout.Box(
-            Modifier.offset(x = offset).width(segWidth).height(36.dp).clip(RoundedCornerShape(50)).background(c.surface),
-        )
+        if (index >= 0) {
+            androidx.compose.foundation.layout.Box(
+                Modifier.offset(x = offset).width(segWidth).height(36.dp).clip(RoundedCornerShape(50)).background(c.surface),
+            )
+        }
         Row(Modifier.fillMaxWidth().height(36.dp)) {
             options.forEach { (value, label) ->
                 androidx.compose.foundation.layout.Box(

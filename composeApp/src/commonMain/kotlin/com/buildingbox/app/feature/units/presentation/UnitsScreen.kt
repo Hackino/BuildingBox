@@ -1,5 +1,6 @@
 package com.buildingbox.app.feature.units.presentation
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.Icon
@@ -123,7 +125,11 @@ private fun UnitList(
 @Composable
 private fun UnitRow(apartment: Apartment, status: PaymentStatus, selected: Boolean, onClick: () -> Unit) {
     val c = LocalAppColors.current
-    AppCard(Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable(onClick = onClick)) {
+    AppCard(
+        Modifier.fillMaxWidth().padding(vertical = 4.dp)
+            .then(if (selected) Modifier.border(2.dp, c.accent, RoundedCornerShape(22.dp)) else Modifier)
+            .clickable(onClick = onClick),
+    ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Avatar(apartment.ownerName, 44.dp)
             Column(Modifier.weight(1f)) {
