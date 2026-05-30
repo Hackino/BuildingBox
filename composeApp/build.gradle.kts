@@ -195,6 +195,11 @@ compose.desktop {
                 menu = true
                 menuGroup = "BuildingBox"
                 dirChooser = true
+                // Install per-user (to %LOCALAPPDATA%) so the installer needs NO admin/UAC
+                // elevation. A pending UAC prompt the user never sees is the usual cause of
+                // an installer that "runs in Task Manager but shows no window". The wizard
+                // (incl. dirChooser) still appears; it just no longer requires admin.
+                perUserInstall = true
                 // Stable upgrade UUID so new installers replace the old version cleanly.
                 upgradeUuid = "8B6F9C2A-1D3E-4F5A-9B7C-2E4D6A8F0C13"
             }
