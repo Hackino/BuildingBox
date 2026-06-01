@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -30,6 +31,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,12 +45,13 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.buildingbox.app.core.datetime.currentMonth
 import com.buildingbox.app.core.datetime.formatMonth
 import com.buildingbox.app.core.datetime.shiftMonth
 import com.buildingbox.app.core.designsystem.AppCard
 import com.buildingbox.app.core.designsystem.Avatar
+import com.buildingbox.app.core.designsystem.LoadingOverlay
+import com.buildingbox.app.feature.units.domain.floorLabel
 import com.buildingbox.app.core.designsystem.DualMoney
 import com.buildingbox.app.core.designsystem.LocalAppColors
 import com.buildingbox.app.core.designsystem.SegmentedControl
@@ -61,7 +64,6 @@ import com.buildingbox.app.feature.payments.presentation.DueEditor
 import com.buildingbox.app.feature.payments.presentation.label
 import com.buildingbox.app.feature.payments.presentation.tone
 import com.buildingbox.app.feature.units.domain.Apartment
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 
@@ -82,9 +84,16 @@ fun UnitDetail(
     // chosen year up to the current month. selectedYear is null while a preset is active.
     var rangeMonths by remember { mutableStateOf(12) }
     var selectedYear by remember { mutableStateOf<Int?>(null) }
-    val allDues by remember(apartment.id) {
-        duesRepo.observeAll().map { all -> all.filter { it.apartmentId == apartment.id } }
-    }.collectAsStateWithLifecycle(emptyList())
+    // Scroll resets to the top each time a different unit is opened (desktop two-pane).
+    val listState = remember(apartment.id) { LazyListState() }
+    // null = still fetching this unit's dues; non-null = loaded (possibly empty).
+    var allDuesOrNull by remember(apartment.id) { mutableStateOf<List<Due>?>(null) }
+    LaunchedEffect(apartment.id) {
+        allDuesOrNull = null
+        duesRepo.observeAll().collect { all -> allDuesOrNull = all.filter { it.apartmentId == apartment.id } }
+    }
+    val fetching = allDuesOrNull == null
+    val allDues = allDuesOrNull ?: emptyList()
     val currentYear = currentMonth().take(4).toInt()
     val currentMonthNum = currentMonth().substring(5, 7).toInt()
     // Year picker always offers 2024 → current year (never a future year).
@@ -95,8 +104,10 @@ fun UnitDetail(
 
     // (month, due|null) → editing existing or adding new
     var dueTarget by remember { mutableStateOf<Pair<String, Due?>?>(null) }
+    var busy by remember { mutableStateOf(false) }
 
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 28.dp)) {
+    Box(Modifier.fillMaxSize()) {
+    LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 28.dp)) {
         item {
             Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
@@ -109,7 +120,7 @@ fun UnitDetail(
                 Avatar(apartment.ownerName, 64.dp)
                 Text(apartment.ownerName, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = 12.dp))
                 Text(
-                    "${apartment.name} · " + if (apartment.floor == 0) "Ground floor" else "Floor ${apartment.floor}",
+                    "${apartment.name} · " + floorLabel(apartment.floor),
                     color = c.textSecondary, style = MaterialTheme.typography.bodyMedium,
                 )
                 if (currentStatus != null) {
@@ -162,16 +173,27 @@ fun UnitDetail(
             MonthHistory(am, isAdmin, onEditDue = { dueTarget = am.month to it }, onAddDue = { dueTarget = am.month to null })
         }
     }
+        LoadingOverlay(visible = busy || fetching)
+    }
 
     dueTarget?.let { (month, due) ->
         DueEditor(
             initial = due,
             onDismiss = { dueTarget = null },
             onSave = { input ->
-                scope.launch { if (due != null) duesRepo.updateDue(due, input) else duesRepo.addDue(apartment.id, month, input) }
+                busy = true
+                scope.launch {
+                    if (due != null) duesRepo.updateDue(due, input) else duesRepo.addDue(apartment.id, month, input)
+                    busy = false
+                }
                 dueTarget = null
             },
-            onDelete = if (due != null && !due.base) ({ scope.launch { duesRepo.removeDue(due) }; dueTarget = null }) else null,
+            // Any due can be deleted now (including base/monthly dues).
+            onDelete = if (due != null) ({
+                busy = true
+                scope.launch { duesRepo.removeDue(due); busy = false }
+                dueTarget = null
+            }) else null,
         )
     }
 }

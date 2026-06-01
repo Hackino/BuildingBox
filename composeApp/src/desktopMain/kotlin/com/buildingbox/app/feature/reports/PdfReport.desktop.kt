@@ -1,5 +1,6 @@
 package com.buildingbox.app.feature.reports
 
+import com.buildingbox.app.core.datetime.formatDayLong
 import com.buildingbox.app.core.datetime.formatMonth
 import com.buildingbox.app.core.money.DualAmount
 import com.buildingbox.app.core.money.formatLbp
@@ -150,8 +151,12 @@ internal fun buildReportPdf(r: ReportData): ByteArray {
     sectionCard(
         "Expenses this month",
         buildList {
-            if (r.expenses.isEmpty()) add(Ln("No expenses", "—", SECONDARY))
-            r.expenses.forEach { (cat, amt) -> add(Ln(cat.label, dual(amt), FLOW_OUT)) }
+            if (r.expenseItems.isEmpty()) add(Ln("No expenses", "—", SECONDARY))
+            // Show each expense's reason; category in parentheses for context.
+            r.expenseItems.forEach { e ->
+                val reason = e.label.ifBlank { e.category.label }
+                add(Ln("$reason  (${e.category.label} · ${formatDayLong(e.date)})", dual(e.amount), FLOW_OUT))
+            }
             add(Ln("Total spent", dual(r.totalSpent), FLOW_OUT, bold = true))
         },
     )
@@ -173,8 +178,9 @@ internal fun buildReportPdf(r: ReportData): ByteArray {
             listOf(Ln("No payments yet", "—", SECONDARY))
         } else {
             r.paidList.map {
+                val on = it.date?.let { d -> " · ${formatDayLong(d)}" } ?: ""
                 Ln(
-                    "${it.name} · ${it.owner}${if (it.partial) "  (partial)" else ""}",
+                    "${it.name} · ${it.owner}${if (it.partial) "  (partial)" else ""}$on",
                     dual(it.amount),
                     if (it.partial) WARN else FLOW_IN,
                 )

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -49,10 +50,12 @@ import com.buildingbox.app.core.datetime.formatDayLong
 import com.buildingbox.app.core.datetime.formatMonth
 import com.buildingbox.app.core.datetime.today
 import com.buildingbox.app.core.designsystem.AppCard
+import com.buildingbox.app.core.designsystem.LoadingOverlay
 import com.buildingbox.app.core.designsystem.DualMoney
 import com.buildingbox.app.core.designsystem.LocalAppColors
 import com.buildingbox.app.core.designsystem.SegmentedControl
 import com.buildingbox.app.core.designsystem.TopBar
+import com.buildingbox.app.feature.calendar.domain.Expense
 import com.buildingbox.app.feature.calendar.domain.Movement
 import com.buildingbox.app.feature.calendar.domain.MovementKind
 import org.koin.compose.viewmodel.koinViewModel
@@ -60,16 +63,20 @@ import org.koin.compose.viewmodel.koinViewModel
 @Composable
 fun CalendarScreen(
     isAdmin: Boolean,
+    onOpenUnit: (String) -> Unit = {},
     viewModel: CalendarViewModel = koinViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val loading by viewModel.loading.collectAsStateWithLifecycle()
     val c = LocalAppColors.current
     var view by remember { mutableStateOf("day") }
     var addExpense by remember { mutableStateOf(false) }
+    var editExpense by remember { mutableStateOf<Expense?>(null) }
     var selectedDay by remember(state.month) {
         mutableStateOf(if (state.month == currentMonth()) today().split("-")[2].toIntOrNull() else null)
     }
 
+    Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize()) {
         TopBar(
             title = "Calendar",
@@ -77,7 +84,10 @@ fun CalendarScreen(
             actions = { if (isAdmin) IconButton(onClick = { addExpense = true }) { Icon(Icons.Filled.Add, "Add expense") } },
         )
 
-        LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+        // Cap content width so the square day-grid doesn't blow up on wide desktop windows.
+        LazyColumn(
+            Modifier.fillMaxSize().widthIn(max = 560.dp).align(Alignment.CenterHorizontally).padding(horizontal = 16.dp),
+        ) {
             item {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = viewModel::prevMonth) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Previous") }
@@ -123,9 +133,23 @@ fun CalendarScreen(
             if (shown.isEmpty()) {
                 item { Text("Nothing moved on this " + if (view == "month") "month." else "day.", color = c.textTertiary, modifier = Modifier.padding(vertical = 12.dp)) }
             }
-            itemsIndexed(shown, key = { i, m -> "$i-${m.id}" }) { _, m -> MovementRow(m) }
+            itemsIndexed(shown, key = { i, m -> "$i-${m.id}" }) { _, m ->
+                MovementRow(
+                    m,
+                    showDate = view == "month",
+                    // Income → open the unit; expense (admin) → open the edit sheet.
+                    onClick = when {
+                        m.kind == MovementKind.IN && m.apartmentId != null -> ({ onOpenUnit(m.apartmentId) })
+                        m.kind == MovementKind.OUT && isAdmin && m.expenseId != null ->
+                            ({ editExpense = state.expenses.firstOrNull { it.id == m.expenseId } })
+                        else -> null
+                    },
+                )
+            }
             item { Box(Modifier.size(24.dp)) }
         }
+    }
+        LoadingOverlay(visible = loading)
     }
 
     if (addExpense) {
@@ -133,6 +157,16 @@ fun CalendarScreen(
             month = state.month,
             onDismiss = { addExpense = false },
             onSubmit = { viewModel.addExpense(it); addExpense = false },
+        )
+    }
+
+    editExpense?.let { e ->
+        AddExpenseSheet(
+            month = e.month,
+            initial = e,
+            onDismiss = { editExpense = null },
+            onSubmit = { viewModel.updateExpense(e.month, e.id, it); editExpense = null },
+            onDelete = { viewModel.deleteExpense(e.month, e.id); editExpense = null },
         )
     }
 }
@@ -212,18 +246,22 @@ private fun Dot(color: Color) {
 }
 
 @Composable
-private fun MovementRow(m: Movement) {
+private fun MovementRow(m: Movement, showDate: Boolean = false, onClick: (() -> Unit)? = null) {
     val c = LocalAppColors.current
     val isIn = m.kind == MovementKind.IN
     val color = if (isIn) c.flowIn else c.flowOut
-    AppCard(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+    // In the whole-month view rows aren't grouped under a day header, so show the date here.
+    val sub = listOfNotNull(m.sublabel, if (showDate) formatDayLong(m.date) else null).joinToString(" · ")
+    val cardMod = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+        .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+    AppCard(cardMod) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Box(Modifier.size(38.dp).clip(RoundedCornerShape(10.dp)).background(if (isIn) c.flowInSoft else c.flowOutSoft), contentAlignment = Alignment.Center) {
                 Icon(if (isIn) Icons.Filled.ArrowDownward else Icons.Filled.ArrowUpward, null, tint = color, modifier = Modifier.size(18.dp))
             }
             Column(Modifier.weight(1f)) {
                 Text(m.label, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
-                if (m.sublabel != null) Text(m.sublabel, color = c.textTertiary, style = MaterialTheme.typography.labelMedium)
+                if (sub.isNotEmpty()) Text(sub, color = c.textTertiary, style = MaterialTheme.typography.labelMedium)
             }
             DualMoney(m.amount, compact = true, sign = if (isIn) "+" else "−", style = MaterialTheme.typography.bodyMedium)
         }

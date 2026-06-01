@@ -36,6 +36,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.buildingbox.app.core.datetime.formatDayLong
 import com.buildingbox.app.core.datetime.formatMonth
 import com.buildingbox.app.core.designsystem.AppCard
 import com.buildingbox.app.core.designsystem.DualMoney
@@ -56,6 +57,7 @@ fun DashboardScreen(
     isDark: Boolean,
     onToggleTheme: () -> Unit,
     onOpenReports: () -> Unit,
+    onOpenUnit: (String) -> Unit = {},
     viewModel: DashboardViewModel = koinViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -85,7 +87,11 @@ fun DashboardScreen(
                 Text("Recent activity", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
             }
         }
-        itemsIndexed(state.recent, key = { i, m -> "$i-${m.id}" }) { _, m -> RecentRow(m, Modifier.padding(horizontal = 16.dp)) }
+        itemsIndexed(state.recent, key = { i, m -> "$i-${m.id}" }) { _, m ->
+            // Income rows link to the unit that paid; expense rows aren't navigable here.
+            val onClick = m.apartmentId?.let { id -> { onOpenUnit(id) } }
+            RecentRow(m, Modifier.padding(horizontal = 16.dp), onClick = onClick)
+        }
         item {
             AppCard(Modifier.fillMaxWidth().padding(16.dp).clickable(onClick = onOpenReports), inset = true) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -182,17 +188,21 @@ private fun LegendRow(color: Color, label: String, count: Int) {
 }
 
 @Composable
-private fun RecentRow(m: Movement, modifier: Modifier) {
+private fun RecentRow(m: Movement, modifier: Modifier, onClick: (() -> Unit)? = null) {
     val c = LocalAppColors.current
     val isIn = m.kind == MovementKind.IN
     val color = if (isIn) c.flowIn else c.flowOut
-    Row(modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+    val rowMod = modifier.fillMaxWidth()
+        .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+        .padding(vertical = 6.dp)
+    Row(rowMod, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Box(Modifier.size(38.dp).clip(RoundedCornerShape(10.dp)).background(if (isIn) c.flowInSoft else c.flowOutSoft), contentAlignment = Alignment.Center) {
             Icon(if (isIn) Icons.Filled.ArrowDownward else Icons.Filled.ArrowUpward, null, tint = color, modifier = Modifier.size(18.dp))
         }
         Column(Modifier.weight(1f)) {
             Text(m.label, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
-            if (m.sublabel != null) Text(m.sublabel, color = c.textTertiary, style = MaterialTheme.typography.labelMedium)
+            val sub = listOfNotNull(m.sublabel, formatDayLong(m.date)).joinToString(" · ")
+            if (sub.isNotEmpty()) Text(sub, color = c.textTertiary, style = MaterialTheme.typography.labelMedium)
         }
         DualMoney(m.amount, compact = true, sign = if (isIn) "+" else "−", style = MaterialTheme.typography.bodyMedium)
     }

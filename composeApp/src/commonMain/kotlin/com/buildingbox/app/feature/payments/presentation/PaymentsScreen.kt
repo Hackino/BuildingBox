@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -32,6 +33,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.buildingbox.app.core.datetime.formatMonth
 import com.buildingbox.app.core.datetime.today
 import com.buildingbox.app.core.designsystem.AppButton
+import com.buildingbox.app.core.designsystem.LoadingOverlay
 import com.buildingbox.app.core.designsystem.AppCard
 import com.buildingbox.app.core.designsystem.Avatar
 import com.buildingbox.app.core.designsystem.DualMoney
@@ -43,6 +45,8 @@ import com.buildingbox.app.core.designsystem.TopBar
 import com.buildingbox.app.core.designsystem.dualString
 import com.buildingbox.app.core.money.formatLbp
 import com.buildingbox.app.core.money.formatUsd
+import com.buildingbox.app.feature.calendar.domain.Expense
+import com.buildingbox.app.feature.calendar.presentation.AddExpenseSheet
 import com.buildingbox.app.feature.payments.domain.PaymentStatus
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -54,8 +58,11 @@ fun PaymentsScreen(
     viewModel: PaymentsViewModel = koinViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val loading by viewModel.loading.collectAsStateWithLifecycle()
     var view by remember { mutableStateOf("month") }
+    var editExpense by remember { mutableStateOf<Expense?>(null) }
 
+    Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize()) {
         TopBar(title = "Payments", eyebrow = "Subscriptions")
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -82,8 +89,25 @@ fun PaymentsScreen(
                 }
             }
         } else {
-            ByDayView(state)
+            ByDayView(
+                state = state,
+                isAdmin = isAdmin,
+                onOpenUnit = onOpenUnit,
+                onEditExpense = { editExpense = it },
+            )
         }
+    }
+        LoadingOverlay(visible = loading)
+    }
+
+    editExpense?.let { e ->
+        AddExpenseSheet(
+            month = e.month,
+            initial = e,
+            onDismiss = { editExpense = null },
+            onSubmit = { viewModel.updateExpense(e.month, e.id, it); editExpense = null },
+            onDelete = if (isAdmin) ({ viewModel.deleteExpense(e.month, e.id); editExpense = null }) else null,
+        )
     }
 }
 
@@ -131,17 +155,22 @@ private fun PaymentRowItem(row: PaymentRow, onClick: () -> Unit) {
 }
 
 @Composable
-private fun ByDayView(state: PaymentsUiState) {
+private fun ByDayView(
+    state: PaymentsUiState,
+    isAdmin: Boolean,
+    onOpenUnit: (String) -> Unit,
+    onEditExpense: (Expense) -> Unit,
+) {
     val c = LocalAppColors.current
-    // Paid dues this month grouped by paid date.
-    data class Paid(val owner: String, val title: String, val amount: com.buildingbox.app.core.money.DualAmount)
+    // Paid dues this month grouped by paid date (carry apartmentId so a row links to its unit).
+    data class Paid(val apartmentId: String, val owner: String, val title: String, val amount: com.buildingbox.app.core.money.DualAmount)
     val byDay = remember(state) {
-        state.rows.flatMap { r -> r.month.dues.filter { it.paid }.map { d -> (d.paidOn ?: today()) to Paid(r.apartment.ownerName, d.title, d.amount) } }
+        state.rows.flatMap { r -> r.month.dues.filter { it.paid }.map { d -> (d.paidOn ?: today()) to Paid(r.apartment.id, r.apartment.ownerName, d.title, d.amount) } }
             .groupBy({ it.first }, { it.second })
             .toSortedMap(compareByDescending { it })
     }
-    if (byDay.isEmpty()) {
-        Text("No payments recorded this month.", color = c.textTertiary, modifier = Modifier.padding(24.dp))
+    if (byDay.isEmpty() && state.expenses.isEmpty()) {
+        Text("Nothing recorded this month.", color = c.textTertiary, modifier = Modifier.padding(24.dp))
         return
     }
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp)) {
@@ -150,7 +179,7 @@ private fun ByDayView(state: PaymentsUiState) {
                 Text(date, style = MaterialTheme.typography.labelMedium, color = c.textTertiary, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp))
             }
             items(list) { p ->
-                AppCard(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                AppCard(Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { onOpenUnit(p.apartmentId) }) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(p.owner, fontWeight = FontWeight.SemiBold)
@@ -161,16 +190,37 @@ private fun ByDayView(state: PaymentsUiState) {
                 }
             }
         }
+
+        if (state.expenses.isNotEmpty()) {
+            item(key = "expenses-header") {
+                Text("Expenses · ${formatMonth(state.month)}", style = MaterialTheme.typography.labelMedium, color = c.textTertiary, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
+            }
+            items(state.expenses, key = { "exp-${it.id}" }) { e ->
+                val mod = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                    .then(if (isAdmin) Modifier.clickable { onEditExpense(e) } else Modifier)
+                AppCard(mod) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(e.label, fontWeight = FontWeight.SemiBold)
+                            Text("${e.category.label} · ${e.date}", style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+                        }
+                        DualMoney(e.amount, compact = true, sign = "−", style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            }
+        }
     }
 }
 
 fun PaymentStatus.label(): String = when (this) {
+    PaymentStatus.NONE -> "No dues"
     PaymentStatus.PAID -> "Paid"
     PaymentStatus.PARTIAL -> "Partial"
     PaymentStatus.UNPAID -> "Unpaid"
 }
 
 fun PaymentStatus.tone(): PillTone = when (this) {
+    PaymentStatus.NONE -> PillTone.NEUTRAL
     PaymentStatus.PAID -> PillTone.POSITIVE
     PaymentStatus.PARTIAL -> PillTone.WARNING
     PaymentStatus.UNPAID -> PillTone.NEGATIVE

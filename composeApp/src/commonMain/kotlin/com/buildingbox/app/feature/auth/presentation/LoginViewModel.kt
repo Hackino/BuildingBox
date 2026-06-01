@@ -28,7 +28,10 @@ class LoginViewModel(private val repo: AuthRepository) : ViewModel() {
             state = state.copy(loading = true, error = null)
             val result = repo.signIn(state.email, state.password)
             state = if (result.isSuccess) {
-                state.copy(loading = false)
+                // Keep the loader up: sign-in succeeded but navigation happens reactively
+                // when SessionState.SignedIn propagates. Staying `loading` covers that gap
+                // so the user sees a spinner the whole way, not a dead frame.
+                state.copy(loading = true)
             } else {
                 state.copy(loading = false, error = result.exceptionOrNull()?.message ?: "Sign-in failed")
             }
