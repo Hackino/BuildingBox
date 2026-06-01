@@ -57,6 +57,8 @@ interface ExpensesRepository {
     fun observeMonth(month: String): Flow<List<Expense>>
     fun observeAll(): Flow<List<Expense>>
     suspend fun addExpense(month: String, input: ExpenseInput): Result<Unit>
+    suspend fun updateExpense(month: String, id: String, input: ExpenseInput): Result<Unit>
+    suspend fun removeExpense(month: String, id: String): Result<Unit>
 }
 
 /** A unified money-box movement for the calendar/ledger. */
@@ -69,4 +71,9 @@ data class Movement(
     val label: String,
     val sublabel: String?,
     val amount: DualAmount,
+    // For income rows: the apartment this payment belongs to (tap → open its details).
+    val apartmentId: String? = null,
+    // For expense rows: the RTDB shard + key so it can be deleted from the calendar.
+    val expenseMonth: String? = null,
+    val expenseId: String? = null,
 )

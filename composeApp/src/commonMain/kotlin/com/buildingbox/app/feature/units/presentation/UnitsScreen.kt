@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.buildingbox.app.core.designsystem.AppCard
 import com.buildingbox.app.core.designsystem.Avatar
+import com.buildingbox.app.core.designsystem.LoadingOverlay
 import com.buildingbox.app.core.designsystem.LocalAppColors
 import com.buildingbox.app.core.designsystem.StatusPill
 import com.buildingbox.app.core.designsystem.TopBar
@@ -39,6 +40,7 @@ import com.buildingbox.app.feature.payments.domain.PaymentStatus
 import com.buildingbox.app.feature.payments.presentation.label
 import com.buildingbox.app.feature.payments.presentation.tone
 import com.buildingbox.app.feature.units.domain.Apartment
+import com.buildingbox.app.feature.units.domain.floorSectionLabel
 import org.koin.compose.viewmodel.koinViewModel
 
 @Composable
@@ -51,6 +53,7 @@ fun UnitsScreen(
 ) {
     val apartments by viewModel.apartments.collectAsStateWithLifecycle()
     val statusMap by viewModel.statusByApartment.collectAsStateWithLifecycle()
+    val loading by viewModel.loading.collectAsStateWithLifecycle()
     var showAdd by remember { mutableStateOf(false) }
     var editApt by remember { mutableStateOf<Apartment?>(null) }
 
@@ -67,20 +70,36 @@ fun UnitsScreen(
         }
     }
 
-    if (expanded) {
-        Row(Modifier.fillMaxSize()) {
-            Box(Modifier.weight(0.42f).fillMaxSize()) { list() }
-            Box(Modifier.weight(0.58f).fillMaxSize()) { detail() }
+    Box(Modifier.fillMaxSize()) {
+        if (expanded) {
+            Row(Modifier.fillMaxSize()) {
+                Box(Modifier.weight(0.42f).fillMaxSize()) { list() }
+                Box(Modifier.weight(0.58f).fillMaxSize()) { detail() }
+            }
+        } else {
+            if (openApt != null) detail() else list()
         }
-    } else {
-        if (openApt != null) detail() else list()
+        LoadingOverlay(visible = loading)
     }
 
     if (showAdd) {
-        ApartmentEditor(initial = null, onDismiss = { showAdd = false }, onSubmit = { viewModel.add(it); showAdd = false })
+        ApartmentEditor(
+            initial = null,
+            onDismiss = { showAdd = false },
+            onSubmit = { showAdd = false; viewModel.add(it) },
+        )
     }
     editApt?.let { apt ->
-        ApartmentEditor(initial = apt, onDismiss = { editApt = null }, onSubmit = { viewModel.update(apt.id, it); editApt = null })
+        ApartmentEditor(
+            initial = apt,
+            onDismiss = { editApt = null },
+            onSubmit = { editApt = null; viewModel.update(apt.id, it) },
+            onDelete = if (isAdmin) ({
+                editApt = null
+                // Deleting the open unit must close its detail pane.
+                viewModel.delete(apt.id, onDone = { if (openId == apt.id) onOpenChange(null) })
+            }) else null,
+        )
     }
 }
 
@@ -109,13 +128,13 @@ private fun UnitList(
             byFloor.forEach { (floor, list) ->
                 item(key = "floor-$floor") {
                     Text(
-                        if (floor == 0) "Ground floor · shops" else "Floor $floor",
+                        floorSectionLabel(floor),
                         style = MaterialTheme.typography.labelMedium, color = c.textTertiary, fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(vertical = 8.dp),
                     )
                 }
                 items(list, key = { it.id }) { apt ->
-                    UnitRow(apt, statusMap[apt.id] ?: PaymentStatus.UNPAID, selected = apt.id == selectedId, onClick = { onSelect(apt.id) })
+                    UnitRow(apt, statusMap[apt.id] ?: PaymentStatus.NONE, selected = apt.id == selectedId, onClick = { onSelect(apt.id) })
                 }
             }
         }

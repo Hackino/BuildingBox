@@ -86,7 +86,7 @@ fun Avatar(name: String, size: Dp = 40.dp) {
     }
 }
 
-enum class PillTone { POSITIVE, WARNING, NEGATIVE }
+enum class PillTone { POSITIVE, WARNING, NEGATIVE, NEUTRAL }
 
 @Composable
 fun StatusPill(text: String, tone: PillTone) {
@@ -95,6 +95,7 @@ fun StatusPill(text: String, tone: PillTone) {
         PillTone.POSITIVE -> c.flowIn to c.flowInSoft
         PillTone.WARNING -> c.warn to c.warnSoft
         PillTone.NEGATIVE -> c.flowOut to c.flowOutSoft
+        PillTone.NEUTRAL -> c.textTertiary to c.surfaceInset
     }
     Row(
         Modifier.clip(RoundedCornerShape(50)).background(bg).padding(horizontal = 10.dp, vertical = 4.dp),

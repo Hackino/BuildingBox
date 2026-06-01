@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.buildingbox.app.core.datetime.currentMonth
 import com.buildingbox.app.core.datetime.dateOf
+import com.buildingbox.app.core.datetime.monthOf
 import com.buildingbox.app.core.datetime.shiftMonth
 import com.buildingbox.app.core.money.DualAmount
 import com.buildingbox.app.feature.calendar.domain.ExpenseInput
@@ -20,12 +21,14 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 data class CalendarUiState(
     val month: String = currentMonth(),
     val movements: List<Movement> = emptyList(),
+    val expenses: List<com.buildingbox.app.feature.calendar.domain.Expense> = emptyList(),
     val inTotal: DualAmount = DualAmount.ZERO,
     val outTotal: DualAmount = DualAmount.ZERO,
     val daysIn: Set<Int> = emptySet(),
@@ -40,17 +43,46 @@ class CalendarViewModel(
 
     private val month = MutableStateFlow(currentMonth())
 
+    /** True while a month switch / add is in flight; cleared when fresh data arrives. */
+    private val _loading = MutableStateFlow(false)
+    val loading: StateFlow<Boolean> = _loading
+
     @OptIn(ExperimentalCoroutinesApi::class)
     val state: StateFlow<CalendarUiState> =
         month.flatMapLatest { m ->
             combine(apartmentsRepo.observeApartments(), dues.observeMonth(m), expenses.observeMonth(m)) { apts, monthDues, monthExp ->
                 build(m, apts, monthDues, monthExp)
             }
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CalendarUiState())
+        }.onEach { _loading.value = false }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CalendarUiState())
 
-    fun prevMonth() { month.value = shiftMonth(month.value, -1) }
-    fun nextMonth() { month.value = shiftMonth(month.value, 1) }
-    fun addExpense(input: ExpenseInput) { viewModelScope.launch { expenses.addExpense(month.value, input) } }
+    fun prevMonth() { _loading.value = true; month.value = shiftMonth(month.value, -1) }
+    fun nextMonth() { _loading.value = true; month.value = shiftMonth(month.value, 1) }
+    fun addExpense(input: ExpenseInput) {
+        // Shard by the expense's OWN date-month, not the month being viewed — otherwise a
+        // June expense entered while viewing May lands in the May shard with a June date.
+        viewModelScope.launch { _loading.value = true; expenses.addExpense(monthOf(input.date), input); _loading.value = false }
+    }
+
+    fun deleteExpense(month: String, id: String) {
+        viewModelScope.launch { _loading.value = true; expenses.removeExpense(month, id); _loading.value = false }
+    }
+
+    /** Update an existing expense. If its date moved to another month, relocate the
+     *  record to the correct month shard (delete the old, create in the new). */
+    fun updateExpense(oldMonth: String, id: String, input: ExpenseInput) {
+        viewModelScope.launch {
+            _loading.value = true
+            val newMonth = monthOf(input.date)
+            if (newMonth == oldMonth) {
+                expenses.updateExpense(oldMonth, id, input)
+            } else {
+                expenses.removeExpense(oldMonth, id)
+                expenses.addExpense(newMonth, input)
+            }
+            _loading.value = false
+        }
+    }
 
     private fun build(m: String, apts: List<Apartment>, dues: List<Due>, exp: List<com.buildingbox.app.feature.calendar.domain.Expense>): CalendarUiState {
         val nameById = apts.associate { it.id to it }
@@ -63,10 +95,20 @@ class CalendarViewModel(
                 label = "${apt?.name ?: "Unit"} — ${d.title}",
                 sublabel = apt?.ownerName,
                 amount = d.amount,
+                apartmentId = d.apartmentId,
             )
         }
         val outMoves = exp.map { e ->
-            Movement("out_${e.id}", MovementKind.OUT, e.date, e.label, e.category.label, e.amount)
+            Movement(
+                id = "out_${e.id}",
+                kind = MovementKind.OUT,
+                date = e.date,
+                label = e.label,
+                sublabel = e.category.label,
+                amount = e.amount,
+                expenseMonth = e.month,
+                expenseId = e.id,
+            )
         }
         val movements = (inMoves + outMoves).sortedByDescending { it.date }
         val inTotal = inMoves.fold(DualAmount.ZERO) { a, mv -> a + mv.amount }
@@ -75,6 +117,7 @@ class CalendarViewModel(
         return CalendarUiState(
             month = m,
             movements = movements,
+            expenses = exp,
             inTotal = inTotal,
             outTotal = outTotal,
             daysIn = inMoves.map { dayOf(it.date) }.toSet(),

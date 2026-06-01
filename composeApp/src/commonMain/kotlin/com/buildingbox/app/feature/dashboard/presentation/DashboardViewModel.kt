@@ -64,7 +64,7 @@ class DashboardViewModel(
         val nameById = apts.associateBy { it.id }
         val inMoves = paidDues.map { d ->
             val apt = nameById[d.apartmentId]
-            Movement("in_${d.month}_${d.apartmentId}_${d.id}", MovementKind.IN, d.paidOn ?: dateOf(d.month, 1), "${apt?.name ?: "Unit"} — ${d.title}", apt?.ownerName, d.amount)
+            Movement("in_${d.month}_${d.apartmentId}_${d.id}", MovementKind.IN, d.paidOn ?: dateOf(d.month, 1), "${apt?.name ?: "Unit"} — ${d.title}", apt?.ownerName, d.amount, apartmentId = d.apartmentId)
         }
         val outMoves = allExp.map { e -> Movement("out_${e.month}_${e.id}", MovementKind.OUT, e.date, e.label, e.category.label, e.amount) }
         val recent = (inMoves + outMoves).sortedByDescending { it.date }.take(5)

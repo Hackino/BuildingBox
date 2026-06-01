@@ -57,6 +57,16 @@ class DuesRepositoryImpl(private val db: RealtimeDb) : DuesRepository {
         db.update(mapOf("dues/${due.month}/${due.apartmentId}/${due.id}" to JsonNull))
     }
 
+    override suspend fun removeApartmentDues(apartmentId: String): Result<Unit> = runCatching {
+        // Find every month that has dues for this apartment, then null each path in one batch.
+        val byMonth = db.getValue("dues", ALL_DUES) ?: emptyMap()
+        val updates = byMonth
+            .filterValues { byApt -> byApt.containsKey(apartmentId) }
+            .keys
+            .associate { month -> "dues/$month/$apartmentId" to (JsonNull as kotlinx.serialization.json.JsonElement) }
+        if (updates.isNotEmpty()) db.update(updates)
+    }
+
     override suspend fun generateBaseDues(
         month: String,
         feeByApartment: Map<String, DualAmount>,
