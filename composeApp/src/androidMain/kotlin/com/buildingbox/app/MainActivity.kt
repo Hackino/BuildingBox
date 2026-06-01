@@ -13,6 +13,7 @@ class MainActivity : ComponentActivity() {
         installSplashScreen()
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        setContent { App() }
+        // finish() on confirmed exit from Home — matches "back closes app only after confirm".
+        setContent { App(onExit = { finish() }) }
     }
 }

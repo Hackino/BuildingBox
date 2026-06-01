@@ -46,7 +46,7 @@ data class DueInput(
     val paidOn: String?,
 )
 
-enum class PaymentStatus { PAID, PARTIAL, UNPAID }
+enum class PaymentStatus { NONE, PAID, PARTIAL, UNPAID }
 
 /** Aggregated view of one apartment's dues for a month. */
 data class ApartmentMonth(
@@ -60,7 +60,7 @@ data class ApartmentMonth(
 )
 
 fun statusOf(dues: List<Due>): PaymentStatus = when {
-    dues.isEmpty() -> PaymentStatus.PAID
+    dues.isEmpty() -> PaymentStatus.NONE
     dues.all { it.paid } -> PaymentStatus.PAID
     dues.none { it.paid } -> PaymentStatus.UNPAID
     else -> PaymentStatus.PARTIAL
@@ -82,6 +82,8 @@ interface DuesRepository {
     suspend fun addDue(apartmentId: String, month: String, input: DueInput): Result<Unit>
     suspend fun updateDue(due: Due, input: DueInput): Result<Unit>
     suspend fun removeDue(due: Due): Result<Unit>
+    /** Delete every due for an apartment across all months (used when deleting the apartment). */
+    suspend fun removeApartmentDues(apartmentId: String): Result<Unit>
     /** Create the base monthly due for any apartment in [feeByApartment] missing one this month. */
     suspend fun generateBaseDues(month: String, feeByApartment: Map<String, DualAmount>): Result<Unit>
 }

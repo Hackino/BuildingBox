@@ -52,4 +52,5 @@ interface ApartmentRepository {
     fun observeApartments(): Flow<List<Apartment>>
     suspend fun addApartment(input: ApartmentInput): Result<Unit>
     suspend fun updateApartment(id: String, input: ApartmentInput): Result<Unit>
+    suspend fun deleteApartment(id: String): Result<Unit>
 }

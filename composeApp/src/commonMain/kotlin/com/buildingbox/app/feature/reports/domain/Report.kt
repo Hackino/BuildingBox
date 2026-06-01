@@ -1,5 +1,6 @@
 package com.buildingbox.app.feature.reports.domain
 
+import com.buildingbox.app.core.datetime.formatDayLong
 import com.buildingbox.app.core.datetime.formatMonth
 import com.buildingbox.app.core.datetime.shiftMonth
 import com.buildingbox.app.core.money.DualAmount
@@ -21,7 +22,10 @@ data class BuildingDto(
     val currentMonth: String = "",
 )
 
-data class PaidEntry(val name: String, val owner: String, val amount: DualAmount, val partial: Boolean)
+data class PaidEntry(val name: String, val owner: String, val amount: DualAmount, val partial: Boolean, val date: String?)
+
+/** One expense line in the report — carries its reason ([label]) plus category and date. */
+data class ExpenseLine(val label: String, val category: ExpenseCategory, val amount: DualAmount, val date: String)
 
 data class ReportData(
     val buildingName: String,
@@ -33,6 +37,8 @@ data class ReportData(
     val paidCount: Int,
     val total: Int,
     val expenses: List<Pair<ExpenseCategory, DualAmount>>,
+    /** Individual expense lines (with their reason text), newest first. */
+    val expenseItems: List<ExpenseLine>,
     val totalSpent: DualAmount,
     val paidList: List<PaidEntry>,
     val unpaid: List<Pair<String, String>>,
@@ -56,15 +62,26 @@ fun buildReport(
     val expected = months.fold(DualAmount.ZERO) { acc, (_, am) -> acc + am.total }
     val collected = months.fold(DualAmount.ZERO) { acc, (_, am) -> acc + am.paid }
 
-    val expensesByCat = allExp.filter { it.month == month }
+    val monthExpenses = allExp.filter { it.month == month }
+    val expensesByCat = monthExpenses
         .groupBy { it.category }
         .map { (cat, list) -> cat to list.fold(DualAmount.ZERO) { a, e -> a + e.amount } }
         .sortedByDescending { it.second.usdCents + it.second.lbp / 1_000_000 }
+    val expenseItems = monthExpenses
+        .sortedByDescending { it.date }
+        .map { ExpenseLine(it.label, it.category, it.amount, it.date) }
     val totalSpent = expensesByCat.fold(DualAmount.ZERO) { a, (_, amt) -> a + amt }
 
-    val paidList = months.filter { it.second.status != PaymentStatus.UNPAID }
-        .map { (a, am) -> PaidEntry(a.name, a.ownerName, am.paid, am.status == PaymentStatus.PARTIAL) }
-    val unpaid = months.filter { it.second.status != PaymentStatus.PAID }.map { (a, _) -> a.name to a.ownerName }
+    // "Paid"/"Still due" lists only concern apartments that actually have dues this
+    // month — a unit with no dues (status NONE) belongs in neither list.
+    val withDues = months.filter { it.second.status != PaymentStatus.NONE }
+    val paidList = withDues.filter { it.second.status != PaymentStatus.UNPAID }
+        .map { (a, am) ->
+            // Most recent pay date among this unit's paid dues this month.
+            val paidOn = am.dues.filter { it.paid }.mapNotNull { it.paidOn }.maxOrNull()
+            PaidEntry(a.name, a.ownerName, am.paid, am.status == PaymentStatus.PARTIAL, paidOn)
+        }
+    val unpaid = withDues.filter { it.second.status != PaymentStatus.PAID }.map { (a, _) -> a.name to a.ownerName }
 
     // Balance in the box at the end of any month = paid dues − expenses up to and including it.
     fun balanceAsOf(m: String): DualAmount =
@@ -86,6 +103,7 @@ fun buildReport(
         paidCount = months.count { it.second.status == PaymentStatus.PAID },
         total = apts.size,
         expenses = expensesByCat,
+        expenseItems = expenseItems,
         totalSpent = totalSpent,
         paidList = paidList,
         unpaid = unpaid,
@@ -117,9 +135,19 @@ fun reportToText(r: ReportData): String {
         "This month (${if (r.isGain) "gain" else "loss"}): ${dual(r.net)}",
         "Closing balance: ${dual(r.closing)}",
     )
+    if (r.expenseItems.isNotEmpty()) {
+        lines += ""; lines += "Expenses:"
+        r.expenseItems.forEach { e ->
+            val reason = e.label.ifBlank { e.category.label }
+            lines += "• $reason (${e.category.label}, ${formatDayLong(e.date)}): ${dual(e.amount)}"
+        }
+    }
     if (r.paidList.isNotEmpty()) {
         lines += ""; lines += "Paid:"
-        r.paidList.forEach { lines += "✓ ${it.name} — ${it.owner}: ${dual(it.amount)}${if (it.partial) " (partial)" else ""}" }
+        r.paidList.forEach {
+            val on = it.date?.let { d -> ", ${formatDayLong(d)}" } ?: ""
+            lines += "✓ ${it.name} — ${it.owner}: ${dual(it.amount)}${if (it.partial) " (partial)" else ""}$on"
+        }
     }
     if (r.unpaid.isNotEmpty()) {
         lines += ""; lines += "Still due:"

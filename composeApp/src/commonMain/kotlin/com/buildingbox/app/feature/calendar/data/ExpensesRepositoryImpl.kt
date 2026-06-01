@@ -8,6 +8,7 @@ import com.buildingbox.app.feature.calendar.domain.ExpensesRepository
 import com.buildingbox.app.feature.calendar.domain.toDomain
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.serializer
 
 private val MONTH_EXPENSES = serializer<Map<String, ExpenseDto>>()
@@ -38,5 +39,23 @@ class ExpensesRepositoryImpl(private val db: RealtimeDb) : ExpensesRepository {
             ExpenseDto.serializer(),
         )
         Unit
+    }
+
+    override suspend fun updateExpense(month: String, id: String, input: ExpenseInput): Result<Unit> = runCatching {
+        db.setValue(
+            "expenses/$month/$id",
+            ExpenseDto(
+                date = input.date,
+                label = input.label,
+                category = input.category.key,
+                usdCents = input.usdCents,
+                lbp = input.lbp,
+            ),
+            ExpenseDto.serializer(),
+        )
+    }
+
+    override suspend fun removeExpense(month: String, id: String): Result<Unit> = runCatching {
+        db.update(mapOf("expenses/$month/$id" to JsonNull))
     }
 }

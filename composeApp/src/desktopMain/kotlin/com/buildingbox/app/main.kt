@@ -16,7 +16,7 @@ fun main() {
             icon = painterResource("icon.png"),
             state = rememberWindowState(width = 1100.dp, height = 800.dp),
         ) {
-            App()
+            App(onExit = ::exitApplication)
         }
     }
 }

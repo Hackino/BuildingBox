@@ -44,8 +44,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.buildingbox.app.core.datetime.formatDayLong
 import com.buildingbox.app.core.datetime.formatMonth
 import com.buildingbox.app.core.designsystem.AppButton
+import com.buildingbox.app.core.designsystem.LoadingOverlay
 import com.buildingbox.app.core.designsystem.AppCard
 import com.buildingbox.app.core.designsystem.DualMoney
 import com.buildingbox.app.core.designsystem.LocalAppColors
@@ -62,6 +64,7 @@ import org.koin.compose.viewmodel.koinViewModel
 @Composable
 fun ReportsScreen(viewModel: ReportsViewModel = koinViewModel()) {
     val report by viewModel.state.collectAsStateWithLifecycle()
+    val loading by viewModel.loading.collectAsStateWithLifecycle()
     val c = LocalAppColors.current
     val clipboard = LocalClipboardManager.current
     val authRepo = koinInject<AuthRepository>()
@@ -79,6 +82,7 @@ fun ReportsScreen(viewModel: ReportsViewModel = koinViewModel()) {
         )
     }
 
+    Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize()) {
         TopBar(
             title = "Reports",
@@ -94,39 +98,40 @@ fun ReportsScreen(viewModel: ReportsViewModel = koinViewModel()) {
         val r = report
         if (r == null) {
             Box(Modifier.fillMaxSize()) { Text("Loading…", color = c.textTertiary, modifier = Modifier.align(Alignment.Center)) }
-            return
-        }
-
-        LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)) {
-            item { ReportCard(r) }
-            item {
-                Column(Modifier.fillMaxWidth().padding(top = 16.dp)) {
-                    AppButton(
-                        "Share PDF",
-                        onClick = { exporter.sharePdf(r) },
-                        modifier = Modifier.fillMaxWidth().height(50.dp),
-                        leading = { Icon(Icons.Filled.PictureAsPdf, null, modifier = Modifier.height(18.dp)) },
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        } else {
+            LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)) {
+                item { ReportCard(r) }
+                item {
+                    Column(Modifier.fillMaxWidth().padding(top = 16.dp)) {
                         AppButton(
-                            "Download",
-                            onClick = { exporter.downloadPdf(r) },
-                            ghost = true,
-                            modifier = Modifier.weight(1f).height(48.dp),
-                            leading = { Icon(Icons.Filled.Download, null, modifier = Modifier.height(18.dp)) },
+                            "Share PDF",
+                            onClick = { exporter.sharePdf(r) },
+                            modifier = Modifier.fillMaxWidth().height(50.dp),
+                            leading = { Icon(Icons.Filled.PictureAsPdf, null, modifier = Modifier.height(18.dp)) },
                         )
-                        AppButton(
-                            "Copy",
-                            onClick = { clipboard.setText(AnnotatedString(reportToText(r))) },
-                            ghost = true,
-                            modifier = Modifier.weight(1f).height(48.dp),
-                            leading = { Icon(Icons.Filled.ContentCopy, null, modifier = Modifier.height(18.dp)) },
-                        )
+                        Spacer(Modifier.height(10.dp))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            AppButton(
+                                "Download",
+                                onClick = { exporter.downloadPdf(r) },
+                                ghost = true,
+                                modifier = Modifier.weight(1f).height(48.dp),
+                                leading = { Icon(Icons.Filled.Download, null, modifier = Modifier.height(18.dp)) },
+                            )
+                            AppButton(
+                                "Copy",
+                                onClick = { clipboard.setText(AnnotatedString(reportToText(r))) },
+                                ghost = true,
+                                modifier = Modifier.weight(1f).height(48.dp),
+                                leading = { Icon(Icons.Filled.ContentCopy, null, modifier = Modifier.height(18.dp)) },
+                            )
+                        }
                     }
                 }
             }
         }
+    }
+        LoadingOverlay(visible = loading)
     }
 }
 
@@ -153,8 +158,9 @@ private fun ReportCard(r: ReportData) {
             }
 
             Section("Expenses this month") {
-                if (r.expenses.isEmpty()) Text("No expenses recorded.", color = c.textTertiary, style = MaterialTheme.typography.bodySmall)
-                r.expenses.forEach { (cat, amt) -> Line(cat.label, amt, tone = c.flowOut) }
+                if (r.expenseItems.isEmpty()) Text("No expenses recorded.", color = c.textTertiary, style = MaterialTheme.typography.bodySmall)
+                // Show the reason (label) with its category + date as a sublabel.
+                r.expenseItems.forEach { e -> ExpenseLineRow(e.label, "${e.category.label} · ${formatDayLong(e.date)}", e.amount) }
                 Line("Total spent", r.totalSpent, tone = c.flowOut, strong = true)
             }
 
@@ -164,7 +170,13 @@ private fun ReportCard(r: ReportData) {
                     Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text("${p.name} · ${p.owner}", style = MaterialTheme.typography.bodySmall, maxLines = 1)
-                            if (p.partial) Text("partial", color = c.warn, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                            val sub = listOfNotNull(
+                                p.date?.let { formatDayLong(it) },
+                                if (p.partial) "partial" else null,
+                            ).joinToString(" · ")
+                            if (sub.isNotEmpty()) {
+                                Text(sub, color = if (p.partial) c.warn else c.textTertiary, style = MaterialTheme.typography.labelSmall, fontWeight = if (p.partial) FontWeight.Bold else FontWeight.Normal)
+                            }
                         }
                         DualMoney(p.amount, compact = true, style = MaterialTheme.typography.bodySmall)
                     }
@@ -213,6 +225,18 @@ private fun Line(key: String, value: DualAmount, tone: Color? = null, strong: Bo
     Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         Text(key, color = if (strong) MaterialTheme.colorScheme.onSurface else c.textSecondary, fontWeight = if (strong) FontWeight.Bold else FontWeight.Normal, style = MaterialTheme.typography.bodySmall)
         DualMoney(value, compact = true, sign = sign, style = MaterialTheme.typography.bodySmall, weight = if (strong) FontWeight.ExtraBold else FontWeight.Bold)
+    }
+}
+
+@Composable
+private fun ExpenseLineRow(reason: String, category: String, value: DualAmount) {
+    val c = LocalAppColors.current
+    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f).padding(end = 8.dp)) {
+            Text(reason.ifBlank { category }, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Medium, style = MaterialTheme.typography.bodySmall)
+            Text(category, color = c.textTertiary, style = MaterialTheme.typography.labelSmall)
+        }
+        DualMoney(value, compact = true, style = MaterialTheme.typography.bodySmall, weight = FontWeight.Bold)
     }
 }
 

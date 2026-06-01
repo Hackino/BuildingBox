@@ -23,7 +23,7 @@ import com.buildingbox.app.feature.auth.presentation.LoginScreen
 import org.koin.compose.koinInject
 
 @Composable
-fun App() {
+fun App(onExit: () -> Unit = {}) {
     var override by remember { mutableStateOf<Boolean?>(null) }
     val dark = override ?: isSystemInDarkTheme()
 
@@ -40,6 +40,7 @@ fun App() {
                     session = s.session,
                     isDark = dark,
                     onToggleTheme = { override = !dark },
+                    onExit = onExit,
                 )
             }
         }
