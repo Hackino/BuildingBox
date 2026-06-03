@@ -30,6 +30,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.buildingbox.app.core.datetime.formatDayLong
 import com.buildingbox.app.core.datetime.formatMonth
 import com.buildingbox.app.core.datetime.today
 import com.buildingbox.app.core.designsystem.AppButton
@@ -162,10 +163,16 @@ private fun ByDayView(
     onEditExpense: (Expense) -> Unit,
 ) {
     val c = LocalAppColors.current
-    // Paid dues this month grouped by paid date (carry apartmentId so a row links to its unit).
-    data class Paid(val apartmentId: String, val owner: String, val title: String, val amount: com.buildingbox.app.core.money.DualAmount)
+    // Paid dues this month grouped by paid date (carry apartmentId so a row links to its
+    // unit, and the paid date so each item can show it).
+    data class Paid(val apartmentId: String, val owner: String, val title: String, val date: String, val amount: com.buildingbox.app.core.money.DualAmount)
     val byDay = remember(state) {
-        state.rows.flatMap { r -> r.month.dues.filter { it.paid }.map { d -> (d.paidOn ?: today()) to Paid(r.apartment.id, r.apartment.ownerName, d.title, d.amount) } }
+        state.rows.flatMap { r ->
+            r.month.dues.filter { it.paid }.map { d ->
+                val on = d.paidOn ?: today()
+                on to Paid(r.apartment.id, r.apartment.ownerName, d.title, on, d.amount)
+            }
+        }
             .groupBy({ it.first }, { it.second })
             .toSortedMap(compareByDescending { it })
     }
@@ -183,7 +190,7 @@ private fun ByDayView(
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(p.owner, fontWeight = FontWeight.SemiBold)
-                            Text(p.title, style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+                            Text("${p.title} · ${formatDayLong(p.date)}", style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
                         }
                         DualMoney(p.amount, compact = true, sign = "+", style = MaterialTheme.typography.bodyMedium)
                     }

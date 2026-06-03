@@ -187,10 +187,11 @@ private fun ReportCard(r: ReportData) {
                 Line("Closing (last month)", r.opening)
                 Line("Total collected", r.collected, tone = c.flowIn, sign = "+")
                 Line("Total spent", r.totalSpent, tone = c.flowOut, sign = "−")
-                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("This month ${if (r.isGain) "▲ gain" else "▼ loss"}", color = c.textSecondary, style = MaterialTheme.typography.bodySmall)
-                    DualMoney(r.net, compact = true, style = MaterialTheme.typography.bodySmall, sign = if (r.isGain) "+" else "−")
-                }
+                // This month's gain/loss line — hidden per request.
+                // Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                //     Text("This month ${if (r.isGain) "▲ gain" else "▼ loss"}", color = c.textSecondary, style = MaterialTheme.typography.bodySmall)
+                //     DualMoney(r.net, compact = true, style = MaterialTheme.typography.bodySmall, sign = if (r.isGain) "+" else "−")
+                // }
                 Line("Closing · available", r.closing, strong = true)
             }
 
