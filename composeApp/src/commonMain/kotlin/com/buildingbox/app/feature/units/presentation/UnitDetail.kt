@@ -179,6 +179,7 @@ fun UnitDetail(
     dueTarget?.let { (month, due) ->
         DueEditor(
             initial = due,
+            month = month,
             onDismiss = { dueTarget = null },
             onSave = { input ->
                 busy = true
