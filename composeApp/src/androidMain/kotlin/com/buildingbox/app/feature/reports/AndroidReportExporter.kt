@@ -29,7 +29,8 @@ import java.io.FileOutputStream
 private const val PAGE_W = 595
 private const val PAGE_H = 842
 private const val M = 24f                // page margin
-private const val PAD = 18f              // card inner padding
+private const val PAD = 18f              // horizontal text inset from card edge
+private const val VPAD = 4f              // inner vertical padding (top/bottom) inside a card
 private const val CARD_L = M
 private const val CARD_R = PAGE_W - M
 private const val TEXT_L = M + PAD
@@ -89,6 +90,32 @@ class AndroidReportExporter(private val context: Context) : ReportExporter {
         }
     }
 
+    override fun downloadMultiPdf(reports: List<ReportData>) {
+        if (reports.isEmpty()) return
+        val bytes = buildPdf(reports)
+        val name = if (reports.size == 1) fileName(reports.first())
+        else "BuildingBox_${reports.first().month}_to_${reports.last().month}.pdf"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val values = ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, name)
+                put(MediaStore.Downloads.MIME_TYPE, "application/pdf")
+                put(MediaStore.Downloads.IS_PENDING, 1)
+            }
+            val resolver = context.contentResolver
+            val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+            if (uri != null) {
+                resolver.openOutputStream(uri)?.use { it.write(bytes) }
+                values.clear(); values.put(MediaStore.Downloads.IS_PENDING, 0)
+                resolver.update(uri, values, null, null)
+                toast("Saved to Downloads · $name")
+            } else toast("Could not save the file")
+        } else {
+            val file = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), name)
+            file.writeBytes(bytes)
+            toast("Saved: ${file.absolutePath}")
+        }
+    }
+
     private fun fileName(r: ReportData) = "BuildingBox_${r.month}.pdf"
     private fun toast(msg: String) = Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
 
@@ -96,7 +123,9 @@ class AndroidReportExporter(private val context: Context) : ReportExporter {
         if (d.usdCents != 0L) add(formatUsd(d.usdCents)); if (d.lbp != 0L) add(formatLbp(d.lbp)); if (isEmpty()) add("$0")
     }.joinToString(" + ")
 
-    private fun buildPdf(r: ReportData): ByteArray {
+    private fun buildPdf(r: ReportData): ByteArray = buildPdf(listOf(r))
+
+    private fun buildPdf(reports: List<ReportData>): ByteArray {
         val doc = PdfDocument()
         val sans = Typeface.SANS_SERIF
         val bold = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
@@ -115,19 +144,10 @@ class AndroidReportExporter(private val context: Context) : ReportExporter {
         var canvas = page.canvas.apply { drawColor(BG) }
         var y = M
         var pageNo = 1
+        // The report being drawn — so every page (incl. overflow pages) can redraw its header.
+        var current: ReportData? = null
 
-        fun ensure(space: Float) {
-            if (y + space > PAGE_H - M) {
-                doc.finishPage(page)
-                pageNo += 1
-                page = doc.startPage(PdfDocument.PageInfo.Builder(PAGE_W, PAGE_H, pageNo).create())
-                canvas = page.canvas.apply { drawColor(BG) }
-                y = M
-            }
-        }
-
-        // Gradient header card.
-        run {
+        fun drawHeader(r: ReportData) {
             val h = 70f
             val rect = RectF(CARD_L, y, CARD_R, y + h)
             val grad = LinearGradient(rect.left, rect.top, rect.right, rect.bottom, 0xFF0E7C68.toInt(), 0xFF0A4F45.toInt(), Shader.TileMode.CLAMP)
@@ -138,15 +158,27 @@ class AndroidReportExporter(private val context: Context) : ReportExporter {
             y += h + 12f
         }
 
+        fun ensure(space: Float) {
+            if (y + space > PAGE_H - M) {
+                doc.finishPage(page)
+                pageNo += 1
+                page = doc.startPage(PdfDocument.PageInfo.Builder(PAGE_W, PAGE_H, pageNo).create())
+                canvas = page.canvas.apply { drawColor(BG) }
+                y = M
+                // Repeat the month header on every continuation page.
+                current?.let { drawHeader(it) }
+            }
+        }
+
         fun sectionCard(title: String, lines: List<Ln>, chips: List<String> = emptyList()) {
             val chipRows = if (chips.isEmpty()) 0 else 1 + chips.size / 3 // rough wrap estimate
-            val contentH = 26f + lines.size * LINE_H + (if (chips.isEmpty()) 0f else 8f + chipRows * 24f) + PAD * 2
+            val contentH = 26f + lines.size * LINE_H + (if (chips.isEmpty()) 0f else 8f + chipRows * 24f) + VPAD * 2
             ensure(contentH + 12f)
             val top = y
             val rect = RectF(CARD_L, top, CARD_R, top + contentH)
             canvas.drawRoundRect(rect, 16f, 16f, cardPaint)
             canvas.drawRoundRect(rect, 16f, 16f, borderPaint)
-            var yy = top + PAD + 12f
+            var yy = top + VPAD + 12f
             canvas.drawText(title.uppercase(), TEXT_L, yy, head)
             yy += 22f
             lines.forEach { ln ->
@@ -167,8 +199,24 @@ class AndroidReportExporter(private val context: Context) : ReportExporter {
                     cx += w + 6f
                 }
             }
-            y = top + contentH + 12f
+            y = top + contentH + 2f
         }
+
+        // Start a fresh page for the next report (the first uses the page opened above).
+        fun startReportPage() {
+            doc.finishPage(page)
+            pageNo += 1
+            page = doc.startPage(PdfDocument.PageInfo.Builder(PAGE_W, PAGE_H, pageNo).create())
+            canvas = page.canvas.apply { drawColor(BG) }
+            y = M
+        }
+
+        reports.forEachIndexed { index, r ->
+        current = r
+        if (index > 0) startReportPage()
+
+        // Gradient header card (first page of this month).
+        drawHeader(r)
 
         sectionCard(
             "Collection",
@@ -193,17 +241,6 @@ class AndroidReportExporter(private val context: Context) : ReportExporter {
         )
 
         sectionCard(
-            "Box balance",
-            listOf(
-                Ln("Opening (last month)", dual(r.opening)),
-                Ln("Total collected", "+ ${dual(r.collected)}", FLOW_IN),
-                Ln("Total spent", "− ${dual(r.totalSpent)}", FLOW_OUT),
-                Ln("This month (${if (r.isGain) "gain" else "loss"})", dual(r.net), if (r.isGain) FLOW_IN else FLOW_OUT),
-                Ln("Closing · available", dual(r.closing), bold = true),
-            ),
-        )
-
-        sectionCard(
             "Paid this month · ${r.paidList.size}",
             if (r.paidList.isEmpty()) listOf(Ln("No payments yet", "—", SECONDARY))
             else r.paidList.map {
@@ -215,6 +252,18 @@ class AndroidReportExporter(private val context: Context) : ReportExporter {
         if (r.unpaid.isNotEmpty()) {
             sectionCard("Still due", emptyList(), chips = r.unpaid.map { "${it.first} · ${it.second}" })
         }
+
+        // Box balance last — after Paid this month and Still due.
+        sectionCard(
+            "Box balance",
+            listOf(
+                Ln("Opening (last month)", dual(r.opening)),
+                Ln("Total collected", "+ ${dual(r.collected)}", FLOW_IN),
+                Ln("Total spent", "− ${dual(r.totalSpent)}", FLOW_OUT),
+                Ln("Closing · available", dual(r.closing), bold = true),
+            ),
+        )
+        } // end reports.forEachIndexed
 
         doc.finishPage(page)
         val out = ByteArrayOutputStream()

@@ -18,13 +18,22 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -44,8 +53,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.buildingbox.app.core.datetime.currentMonth
 import com.buildingbox.app.core.datetime.formatDayLong
 import com.buildingbox.app.core.datetime.formatMonth
+import com.buildingbox.app.core.datetime.shiftMonth
 import com.buildingbox.app.core.designsystem.AppButton
 import com.buildingbox.app.core.designsystem.LoadingOverlay
 import com.buildingbox.app.core.designsystem.AppCard
@@ -71,6 +82,7 @@ fun ReportsScreen(viewModel: ReportsViewModel = koinViewModel()) {
     val exporter = koinInject<ReportExporter>()
     val scope = rememberCoroutineScope()
     var confirmSignOut by remember { mutableStateOf(false) }
+    var showRangeExport by remember { mutableStateOf(false) }
 
     if (confirmSignOut) {
         AlertDialog(
@@ -87,7 +99,11 @@ fun ReportsScreen(viewModel: ReportsViewModel = koinViewModel()) {
         TopBar(
             title = "Reports",
             eyebrow = "Owners' statement",
-            actions = { IconButton(onClick = { confirmSignOut = true }) { Icon(Icons.AutoMirrored.Filled.Logout, "Sign out") } },
+            actions = {
+                // Multi-month PDF export (each month on its own page).
+                IconButton(onClick = { showRangeExport = true }) { Icon(Icons.Filled.DateRange, "Export months range") }
+                IconButton(onClick = { confirmSignOut = true }) { Icon(Icons.AutoMirrored.Filled.Logout, "Sign out") }
+            },
         )
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = viewModel::prevMonth) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Previous") }
@@ -132,6 +148,78 @@ fun ReportsScreen(viewModel: ReportsViewModel = koinViewModel()) {
         }
     }
         LoadingOverlay(visible = loading)
+    }
+
+    if (showRangeExport) {
+        MonthRangeExportDialog(
+            defaultMonth = report?.month ?: currentMonth(),
+            onDismiss = { showRangeExport = false },
+            onExport = { from, to ->
+                showRangeExport = false
+                exporter.downloadMultiPdf(viewModel.reportsForRange(from, to))
+            },
+        )
+    }
+}
+
+/** From/To month range picker; defaults both ends to the month shown in Reports. */
+@Composable
+private fun MonthRangeExportDialog(
+    defaultMonth: String,
+    onDismiss: () -> Unit,
+    onExport: (from: String, to: String) -> Unit,
+) {
+    val c = LocalAppColors.current
+    var from by remember { mutableStateOf(defaultMonth) }
+    var to by remember { mutableStateOf(defaultMonth) }
+    // Offer 2024-01 .. current month, newest first.
+    val months = remember {
+        buildList {
+            var m = currentMonth()
+            while (m >= "2024-01") { add(m); m = shiftMonth(m, -1) }
+        }
+    }
+    val count = run {
+        val (lo, hi) = if (from <= to) from to to else to to from
+        var n = 0; var m = lo; while (m <= hi) { n++; m = shiftMonth(m, 1) }; n
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Export months as PDF") },
+        text = {
+            Column {
+                Text("Each month starts on its own page.", color = c.textTertiary, style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(12.dp))
+                MonthDropdown("From", from, months) { from = it }
+                Spacer(Modifier.height(8.dp))
+                MonthDropdown("To", to, months) { to = it }
+                Spacer(Modifier.height(8.dp))
+                Text("$count month${if (count == 1) "" else "s"} selected", color = c.textSecondary, style = MaterialTheme.typography.labelMedium)
+            }
+        },
+        confirmButton = { TextButton(onClick = { onExport(from, to) }) { Text("Download") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun MonthDropdown(label: String, selected: String, options: List<String>, onSelect: (String) -> Unit) {
+    val c = LocalAppColors.current
+    var open by remember { mutableStateOf(false) }
+    Column {
+        Text(label, color = c.textTertiary, style = MaterialTheme.typography.labelSmall)
+        Box {
+            OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) {
+                Text(formatMonth(selected), modifier = Modifier.weight(1f), textAlign = TextAlign.Start)
+                Icon(Icons.Filled.ArrowDropDown, null)
+            }
+            DropdownMenu(expanded = open, onDismissRequest = { open = false }, modifier = Modifier.heightIn(max = 320.dp)) {
+                options.forEach { m ->
+                    DropdownMenuItem(text = { Text(formatMonth(m)) }, onClick = { onSelect(m); open = false })
+                }
+            }
+        }
     }
 }
 
