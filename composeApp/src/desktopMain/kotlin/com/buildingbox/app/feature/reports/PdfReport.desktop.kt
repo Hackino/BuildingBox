@@ -23,7 +23,8 @@ import java.io.ByteArrayOutputStream
 private const val PAGE_W = 595f
 private const val PAGE_H = 842f
 private const val M = 24f
-private const val PAD = 18f
+private const val PAD = 18f   // horizontal text inset from card edge
+private const val VPAD = 4f    // inner vertical padding (top/bottom) inside a card
 private const val CARD_L = M
 private const val CARD_R = PAGE_W - M
 private const val TEXT_L = M + PAD
@@ -53,13 +54,18 @@ private fun dual(d: DualAmount) = buildList {
 }.joinToString(" + ")
 
 /** Render [r] to PDF bytes. Shared by share + download on desktop. */
-internal fun buildReportPdf(r: ReportData): ByteArray {
+internal fun buildReportPdf(r: ReportData): ByteArray = buildReportsPdf(listOf(r))
+
+/** Render one or more reports into a single PDF; each report starts on a new page. */
+internal fun buildReportsPdf(reports: List<ReportData>): ByteArray {
     val doc = PDDocument()
 
     // One PdfBoxGraphics2D per page; flush appends it to a fresh PDPage.
     var page = PDPage(PDRectangle(PAGE_W, PAGE_H))
     var g = newGraphics(doc)
     var y = M
+    // The report being drawn — so every page (incl. overflow pages) can redraw its header.
+    var current: ReportData? = null
 
     fun flushPage() {
         g.dispose()
@@ -67,19 +73,7 @@ internal fun buildReportPdf(r: ReportData): ByteArray {
         PDPageContentStream(doc, page).use { cs -> cs.drawForm(g.xFormObject) }
     }
 
-    fun newPage() {
-        flushPage()
-        page = PDPage(PDRectangle(PAGE_W, PAGE_H))
-        g = newGraphics(doc)
-        y = M
-    }
-
-    fun ensure(space: Float) {
-        if (y + space > PAGE_H - M) newPage()
-    }
-
-    // Header gradient card.
-    run {
+    fun drawHeader(r: ReportData) {
         val h = 70f
         g.paint = GradientPaint(CARD_L, y, HEADER_TOP, CARD_R, y + h, HEADER_BOTTOM)
         g.fill(RoundRectangle2D.Float(CARD_L, y, CARD_R - CARD_L, h, 18f, 18f))
@@ -92,9 +86,34 @@ internal fun buildReportPdf(r: ReportData): ByteArray {
         y += h + 12f
     }
 
+    fun newPage() {
+        flushPage()
+        page = PDPage(PDRectangle(PAGE_W, PAGE_H))
+        g = newGraphics(doc)
+        y = M
+        // Repeat the month header on every continuation page.
+        current?.let { drawHeader(it) }
+    }
+
+    fun ensure(space: Float) {
+        if (y + space > PAGE_H - M) newPage()
+    }
+
+    reports.forEachIndexed { index, r ->
+    current = r
+    // Every report after the first starts on its own fresh page.
+    if (index > 0) {
+        flushPage()
+        page = PDPage(PDRectangle(PAGE_W, PAGE_H))
+        g = newGraphics(doc)
+        y = M
+    }
+    // Header gradient card (first page of this month).
+    drawHeader(r)
+
     fun sectionCard(title: String, lines: List<Ln>, chips: List<String> = emptyList()) {
         val chipRows = if (chips.isEmpty()) 0 else 1 + chips.size / 3
-        val contentH = 26f + lines.size * LINE_H + (if (chips.isEmpty()) 0f else 8f + chipRows * 24f) + PAD * 2
+        val contentH = 26f + lines.size * LINE_H + (if (chips.isEmpty()) 0f else 8f + chipRows * 24f) + VPAD * 2
         ensure(contentH + 12f)
         val top = y
         val rect = RoundRectangle2D.Float(CARD_L, top, CARD_R - CARD_L, contentH, 16f, 16f)
@@ -104,7 +123,7 @@ internal fun buildReportPdf(r: ReportData): ByteArray {
         g.stroke = BasicStroke(1f)
         g.draw(rect)
 
-        var yy = top + PAD + 12f
+        var yy = top + VPAD + 12f
         g.color = HEAD
         g.font = Font("SansSerif", Font.BOLD, 10)
         g.drawString(title.uppercase(), TEXT_L, yy)
@@ -135,7 +154,7 @@ internal fun buildReportPdf(r: ReportData): ByteArray {
                 cx += w + 6f
             }
         }
-        y = top + contentH + 12f
+        y = top + contentH + 2f
     }
 
     sectionCard(
@@ -162,17 +181,6 @@ internal fun buildReportPdf(r: ReportData): ByteArray {
     )
 
     sectionCard(
-        "Box balance",
-        listOf(
-            Ln("Opening (last month)", dual(r.opening)),
-            Ln("Total collected", "+ ${dual(r.collected)}", FLOW_IN),
-            Ln("Total spent", "− ${dual(r.totalSpent)}", FLOW_OUT),
-            Ln("This month (${if (r.isGain) "gain" else "loss"})", dual(r.net), if (r.isGain) FLOW_IN else FLOW_OUT),
-            Ln("Closing · available", dual(r.closing), bold = true),
-        ),
-    )
-
-    sectionCard(
         "Paid this month · ${r.paidList.size}",
         if (r.paidList.isEmpty()) {
             listOf(Ln("No payments yet", "—", SECONDARY))
@@ -191,6 +199,18 @@ internal fun buildReportPdf(r: ReportData): ByteArray {
     if (r.unpaid.isNotEmpty()) {
         sectionCard("Still due", emptyList(), chips = r.unpaid.map { "${it.first} · ${it.second}" })
     }
+
+    // Box balance last — after Paid this month and Still due.
+    sectionCard(
+        "Box balance",
+        listOf(
+            Ln("Opening (last month)", dual(r.opening)),
+            Ln("Total collected", "+ ${dual(r.collected)}", FLOW_IN),
+            Ln("Total spent", "− ${dual(r.totalSpent)}", FLOW_OUT),
+            Ln("Closing · available", dual(r.closing), bold = true),
+        ),
+    )
+    } // end reports.forEachIndexed
 
     flushPage()
     val out = ByteArrayOutputStream()

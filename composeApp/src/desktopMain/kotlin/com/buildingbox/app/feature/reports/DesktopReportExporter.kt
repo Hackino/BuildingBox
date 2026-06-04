@@ -37,6 +37,26 @@ class DesktopReportExporter : ReportExporter {
         }
     }
 
+    /** Download = native folder picker; one PDF with each month on its own page. */
+    override fun downloadMultiPdf(reports: List<ReportData>) {
+        if (reports.isEmpty()) return
+        val bytes = buildReportsPdf(reports)
+        val name = if (reports.size == 1) fileName(reports.first())
+        else "BuildingBox_${reports.first().month}_to_${reports.last().month}.pdf"
+        SwingUtilities.invokeLater {
+            val chooser = JFileChooser().apply {
+                dialogTitle = "Choose a folder to save the statements"
+                fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
+                currentDirectory = defaultDir()
+            }
+            if (chooser.showSaveDialog(null) == JFileChooser.APPROVE_OPTION) {
+                val dir = chooser.selectedFile ?: return@invokeLater
+                runCatching { File(dir, name).writeBytes(bytes) }
+                    .onSuccess { runCatching { if (Desktop.isDesktopSupported()) Desktop.getDesktop().open(File(dir, name)) } }
+            }
+        }
+    }
+
     private fun fileName(r: ReportData) = "BuildingBox_${r.month}.pdf"
 
     private fun defaultDir(): File =
