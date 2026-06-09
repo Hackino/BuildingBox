@@ -3,63 +3,69 @@ package com.buildingbox.app.feature.reports
 import com.buildingbox.app.feature.reports.domain.ReportData
 import com.buildingbox.app.feature.reports.domain.ReportExporter
 import java.awt.Desktop
+import java.awt.FileDialog
+import java.awt.Frame
 import java.io.File
-import javax.swing.JFileChooser
+import javax.swing.JOptionPane
 import javax.swing.SwingUtilities
 
-/** Desktop has no share sheet — render the same PDF as Android, then open it or let the user save it. */
+/** Desktop: build the PDF in memory, preview it in-app, then save via the native Save dialog. */
 class DesktopReportExporter : ReportExporter {
 
-    /** Share = build the PDF and open it in the system viewer (best desktop analogue of a share sheet). */
+    /** Share = build the PDF and open it in the system viewer. */
     override fun sharePdf(report: ReportData) {
-        val bytes = buildReportPdf(report)
-        val file = File(System.getProperty("java.io.tmpdir"), fileName(report))
-        file.writeBytes(bytes)
-        runCatching { if (Desktop.isDesktopSupported()) Desktop.getDesktop().open(file) }
+        runCatching {
+            val bytes = buildReportPdf(report)
+            val file = File(System.getProperty("java.io.tmpdir"), "BuildingBox_${report.month}.pdf")
+            file.writeBytes(bytes)
+            if (Desktop.isDesktopSupported()) Desktop.getDesktop().open(file)
+        }.onFailure { showError("Could not open the statement", it) }
     }
 
-    /** Download = native folder picker; filename is auto. Writes the PDF into the chosen directory. */
-    override fun downloadPdf(report: ReportData) {
-        val bytes = buildReportPdf(report)
-        val name = fileName(report)
-        // The Swing chooser must run on the AWT event thread.
+    override fun pdfBytes(reports: List<ReportData>): ByteArray = buildReportsPdf(reports)
+
+    /**
+     * Native Save dialog (reliable on macOS & Windows), pre-filled with [suggestedName],
+     * then write the bytes to the exact chosen path and open it. Failures are shown in a
+     * dialog instead of crashing.
+     */
+    override fun savePdf(bytes: ByteArray, suggestedName: String) {
         SwingUtilities.invokeLater {
-            val chooser = JFileChooser().apply {
-                dialogTitle = "Choose a folder to save the statement"
-                fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
-                currentDirectory = defaultDir()
+            val dialog = FileDialog(null as Frame?, "Save statement", FileDialog.SAVE).apply {
+                file = suggestedName            // auto-named; user can keep or change it
+                directory = defaultDir().absolutePath
+                isVisible = true
             }
-            if (chooser.showSaveDialog(null) == JFileChooser.APPROVE_OPTION) {
-                val dir = chooser.selectedFile ?: return@invokeLater
-                runCatching { File(dir, name).writeBytes(bytes) }
-                    .onSuccess { runCatching { if (Desktop.isDesktopSupported()) Desktop.getDesktop().open(File(dir, name)) } }
-            }
+            val chosenName = dialog.file ?: return@invokeLater // null = cancelled
+            val chosenDir = dialog.directory ?: defaultDir().absolutePath
+            val outFile = File(chosenDir, chosenName.ensurePdf())
+            runCatching {
+                outFile.writeBytes(bytes)
+                runCatching { if (Desktop.isDesktopSupported()) Desktop.getDesktop().open(outFile) }
+            }.onFailure { showError("Could not save the statement", it) }
         }
     }
 
-    /** Download = native folder picker; one PDF with each month on its own page. */
-    override fun downloadMultiPdf(reports: List<ReportData>) {
-        if (reports.isEmpty()) return
-        val bytes = buildReportsPdf(reports)
-        val name = if (reports.size == 1) fileName(reports.first())
-        else "BuildingBox_${reports.first().month}_to_${reports.last().month}.pdf"
-        SwingUtilities.invokeLater {
-            val chooser = JFileChooser().apply {
-                dialogTitle = "Choose a folder to save the statements"
-                fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
-                currentDirectory = defaultDir()
-            }
-            if (chooser.showSaveDialog(null) == JFileChooser.APPROVE_OPTION) {
-                val dir = chooser.selectedFile ?: return@invokeLater
-                runCatching { File(dir, name).writeBytes(bytes) }
-                    .onSuccess { runCatching { if (Desktop.isDesktopSupported()) Desktop.getDesktop().open(File(dir, name)) } }
-            }
-        }
-    }
-
-    private fun fileName(r: ReportData) = "BuildingBox_${r.month}.pdf"
+    private fun String.ensurePdf(): String = if (endsWith(".pdf", ignoreCase = true)) this else "$this.pdf"
 
     private fun defaultDir(): File =
         File(System.getProperty("user.home"), "Downloads").takeIf { it.isDirectory }
             ?: File(System.getProperty("user.home"))
+
+    private fun showError(title: String, e: Throwable) {
+        // Full stack trace — needed to diagnose ProGuard/runtime failures where the
+        // exception message alone is null. Also written to a log file you can copy from.
+        val trace = e.stackTraceToString()
+        runCatching {
+            File(System.getProperty("java.io.tmpdir"), "buildingbox-error.log").writeText("$title\n\n$trace")
+        }
+        SwingUtilities.invokeLater {
+            JOptionPane.showMessageDialog(
+                null,
+                "$title:\n\n${trace.take(1500)}\n\n(Full log: ${System.getProperty("java.io.tmpdir")}buildingbox-error.log)",
+                "BuildingBox",
+                JOptionPane.ERROR_MESSAGE,
+            )
+        }
+    }
 }

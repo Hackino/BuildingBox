@@ -9,7 +9,12 @@ class IosReportExporter : ReportExporter {
         println("[reports] PDF share not implemented on iOS")
     }
 
-    override fun downloadPdf(report: ReportData) {
-        println("[reports] PDF download not implemented on iOS")
+    override fun pdfBytes(reports: List<ReportData>): ByteArray {
+        println("[reports] PDF build not implemented on iOS")
+        return ByteArray(0)
+    }
+
+    override fun savePdf(bytes: ByteArray, suggestedName: String) {
+        println("[reports] PDF save not implemented on iOS")
     }
 }
