@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
     <cache-path name="reports" path="reports/" />
+    <!-- Pre-Android 10: PDFs saved to the public Downloads folder, opened via a content URI. -->
+    <external-path name="downloads" path="Download/" />
 </paths>

@@ -169,7 +169,11 @@ compose.desktop {
         buildTypes.release.proguard {
             configurationFiles.from(project.file("compose-desktop.pro"))
             obfuscate.set(false)
-            optimize.set(true)
+            // Optimization rewrites/inlines code via static analysis that misses runtime-only
+            // paths (PDFBox reflection, AWT FileDialog, Skiko interop), which broke PDF saving.
+            // The size win comes from shrinking + the trimmed JRE, not optimization — so leave
+            // it off for a reliable release.
+            optimize.set(false)
         }
 
         nativeDistributions {
