@@ -107,6 +107,11 @@
 -dontwarn org.apache.pdfbox.**
 -dontwarn org.apache.fontbox.**
 -dontwarn de.rototor.pdfbox.**
+# PDFBox initializes a logger via Apache Commons Logging in PDDocument.<clinit>.
+# Commons Logging loads its impl reflectively by class name, so ProGuard can't see
+# it used and strips it → ExceptionInInitializerError at runtime. KEEP it (not just
+# -dontwarn, which only silences the warning and still removes the class).
+-keep class org.apache.commons.logging.** { *; }
 # PDFBox optionally references these; absent on our classpath — don't fail R8.
 -dontwarn org.bouncycastle.**
 -dontwarn javax.imageio.**

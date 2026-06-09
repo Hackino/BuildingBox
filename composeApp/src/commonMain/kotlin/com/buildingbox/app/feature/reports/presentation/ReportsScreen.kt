@@ -67,6 +67,7 @@ import com.buildingbox.app.core.money.DualAmount
 import com.buildingbox.app.feature.auth.domain.AuthRepository
 import com.buildingbox.app.feature.reports.domain.ReportData
 import com.buildingbox.app.feature.reports.domain.ReportExporter
+import com.buildingbox.app.feature.reports.domain.reportsFileName
 import com.buildingbox.app.feature.reports.domain.reportToText
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
@@ -83,6 +84,38 @@ fun ReportsScreen(viewModel: ReportsViewModel = koinViewModel()) {
     val scope = rememberCoroutineScope()
     var confirmSignOut by remember { mutableStateOf(false) }
     var showRangeExport by remember { mutableStateOf(false) }
+    // When non-null, a full-screen PDF preview is shown for these bytes.
+    var preview by remember { mutableStateOf<Pair<ByteArray, String>?>(null) }
+    var previewError by remember { mutableStateOf<String?>(null) }
+
+    previewError?.let { msg ->
+        AlertDialog(
+            onDismissRequest = { previewError = null },
+            title = { Text("Couldn't build the PDF") },
+            text = { Text(msg) },
+            confirmButton = { TextButton(onClick = { previewError = null }) { Text("OK") } },
+        )
+    }
+
+    fun openPreview(reports: List<ReportData>) {
+        if (reports.isEmpty()) return
+        // catch Throwable: PDF build can fail with an Error (e.g. a ProGuard-stripped
+        // PDFBox dependency), which would otherwise crash the UI thread silently.
+        runCatching { exporter.pdfBytes(reports) to reportsFileName(reports) }
+            .onSuccess { preview = it }
+            .onFailure { previewError = it.message ?: it::class.simpleName ?: it.toString() }
+    }
+
+    // Preview takes over the whole screen; its Download persists via the platform exporter.
+    preview?.let { (bytes, name) ->
+        PdfPreviewScreen(
+            bytes = bytes,
+            suggestedName = name,
+            onBack = { preview = null },
+            onDownload = { exporter.savePdf(bytes, name) },
+        )
+        return
+    }
 
     if (confirmSignOut) {
         AlertDialog(
@@ -129,7 +162,7 @@ fun ReportsScreen(viewModel: ReportsViewModel = koinViewModel()) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             AppButton(
                                 "Download",
-                                onClick = { exporter.downloadPdf(r) },
+                                onClick = { openPreview(listOf(r)) },
                                 ghost = true,
                                 modifier = Modifier.weight(1f).height(48.dp),
                                 leading = { Icon(Icons.Filled.Download, null, modifier = Modifier.height(18.dp)) },
@@ -156,7 +189,7 @@ fun ReportsScreen(viewModel: ReportsViewModel = koinViewModel()) {
             onDismiss = { showRangeExport = false },
             onExport = { from, to ->
                 showRangeExport = false
-                exporter.downloadMultiPdf(viewModel.reportsForRange(from, to))
+                openPreview(viewModel.reportsForRange(from, to))
             },
         )
     }

@@ -1,5 +1,8 @@
 package com.buildingbox.app.feature.reports
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
@@ -13,6 +16,8 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.widget.Toast
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.FileProvider
 import com.buildingbox.app.core.datetime.formatDayLong
 import com.buildingbox.app.core.datetime.formatMonth
@@ -66,54 +71,62 @@ class AndroidReportExporter(private val context: Context) : ReportExporter {
         context.startActivity(Intent.createChooser(send, "Share statement").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 
-    override fun downloadPdf(report: ReportData) {
-        val bytes = buildPdf(report)
-        val name = fileName(report)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val values = ContentValues().apply {
-                put(MediaStore.Downloads.DISPLAY_NAME, name)
-                put(MediaStore.Downloads.MIME_TYPE, "application/pdf")
-                put(MediaStore.Downloads.IS_PENDING, 1)
-            }
-            val resolver = context.contentResolver
-            val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-            if (uri != null) {
-                resolver.openOutputStream(uri)?.use { it.write(bytes) }
+    override fun pdfBytes(reports: List<ReportData>): ByteArray = buildPdf(reports)
+
+    /** Always save to the public Downloads folder, then notify; tapping the notification opens it. */
+    override fun savePdf(bytes: ByteArray, suggestedName: String) {
+        val name = suggestedName.ifBlank { "BuildingBox.pdf" }
+        runCatching {
+            val openUri: android.net.Uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val values = ContentValues().apply {
+                    put(MediaStore.Downloads.DISPLAY_NAME, name)
+                    put(MediaStore.Downloads.MIME_TYPE, "application/pdf")
+                    put(MediaStore.Downloads.IS_PENDING, 1)
+                }
+                val resolver = context.contentResolver
+                val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                    ?: error("Could not create the file in Downloads")
+                resolver.openOutputStream(uri)?.use { it.write(bytes) } ?: error("Could not write the file")
                 values.clear(); values.put(MediaStore.Downloads.IS_PENDING, 0)
                 resolver.update(uri, values, null, null)
-                toast("Saved to Downloads · $name")
-            } else toast("Could not save the file")
-        } else {
-            val file = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), name)
-            file.writeBytes(bytes)
-            toast("Saved: ${file.absolutePath}")
-        }
+                uri
+            } else {
+                // Pre-Q: write to the public Downloads dir, expose via FileProvider for opening.
+                @Suppress("DEPRECATION")
+                val downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                val file = File(downloads, name).apply { parentFile?.mkdirs(); writeBytes(bytes) }
+                FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+            }
+            notifySaved(name, openUri)
+            toast("Saved to Downloads · $name")
+        }.onFailure { toast(it.message ?: "Could not save the file") }
     }
 
-    override fun downloadMultiPdf(reports: List<ReportData>) {
-        if (reports.isEmpty()) return
-        val bytes = buildPdf(reports)
-        val name = if (reports.size == 1) fileName(reports.first())
-        else "BuildingBox_${reports.first().month}_to_${reports.last().month}.pdf"
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val values = ContentValues().apply {
-                put(MediaStore.Downloads.DISPLAY_NAME, name)
-                put(MediaStore.Downloads.MIME_TYPE, "application/pdf")
-                put(MediaStore.Downloads.IS_PENDING, 1)
-            }
-            val resolver = context.contentResolver
-            val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-            if (uri != null) {
-                resolver.openOutputStream(uri)?.use { it.write(bytes) }
-                values.clear(); values.put(MediaStore.Downloads.IS_PENDING, 0)
-                resolver.update(uri, values, null, null)
-                toast("Saved to Downloads · $name")
-            } else toast("Could not save the file")
-        } else {
-            val file = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), name)
-            file.writeBytes(bytes)
-            toast("Saved: ${file.absolutePath}")
+    /** Notification whose tap opens the saved PDF in a viewer. */
+    private fun notifySaved(name: String, uri: android.net.Uri) {
+        val channelId = "downloads"
+        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val ch = NotificationChannel(channelId, "Downloads", NotificationManager.IMPORTANCE_DEFAULT)
+            nm.createNotificationChannel(ch)
         }
+        val open = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/pdf")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+            (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
+        val pending = PendingIntent.getActivity(context, name.hashCode(), open, flags)
+        val notif = NotificationCompat.Builder(context, channelId)
+            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setContentTitle("Statement saved")
+            .setContentText("$name · tap to open")
+            .setAutoCancel(true)
+            .setContentIntent(pending)
+            .build()
+        // POST_NOTIFICATIONS (Android 13+) is requested at startup; if denied, the file is
+        // still saved — the notification is simply skipped.
+        runCatching { NotificationManagerCompat.from(context).notify(name.hashCode(), notif) }
     }
 
     private fun fileName(r: ReportData) = "BuildingBox_${r.month}.pdf"
