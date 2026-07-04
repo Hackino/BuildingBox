@@ -61,6 +61,7 @@ import com.buildingbox.app.core.designsystem.AppButton
 import com.buildingbox.app.core.designsystem.LoadingOverlay
 import com.buildingbox.app.core.designsystem.AppCard
 import com.buildingbox.app.core.designsystem.DualMoney
+import com.buildingbox.app.core.designsystem.dualString
 import com.buildingbox.app.core.designsystem.LocalAppColors
 import com.buildingbox.app.core.designsystem.TopBar
 import com.buildingbox.app.core.money.DualAmount
@@ -69,6 +70,7 @@ import com.buildingbox.app.feature.reports.domain.ReportData
 import com.buildingbox.app.feature.reports.domain.ReportExporter
 import com.buildingbox.app.feature.reports.domain.reportsFileName
 import com.buildingbox.app.feature.reports.domain.reportToText
+import com.buildingbox.app.feature.units.domain.floorLabel
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
@@ -278,19 +280,12 @@ private fun ReportCard(r: ReportData) {
                 PlainLine("Units paid", "${r.paidCount}/${r.total}")
             }
 
-            Section("Expenses this month") {
-                if (r.expenseItems.isEmpty()) Text("No expenses recorded.", color = c.textTertiary, style = MaterialTheme.typography.bodySmall)
-                // Show the reason (label) with its category + date as a sublabel.
-                r.expenseItems.forEach { e -> ExpenseLineRow(e.label, "${e.category.label} · ${formatDayLong(e.date)}", e.amount) }
-                Line("Total spent", r.totalSpent, tone = c.flowOut, strong = true)
-            }
-
             Section("Paid this month · ${r.paidList.size}") {
                 if (r.paidList.isEmpty()) Text("No payments yet.", color = c.textTertiary, style = MaterialTheme.typography.bodySmall)
                 r.paidList.forEach { p ->
                     Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text("${p.name} · ${p.owner}", style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                            Text("${p.owner} · ${floorLabel(p.floor)} · ${p.name}", style = MaterialTheme.typography.bodySmall, maxLines = 1)
                             val sub = listOfNotNull(
                                 p.date?.let { formatDayLong(it) },
                                 if (p.partial) "partial" else null,
@@ -299,9 +294,21 @@ private fun ReportCard(r: ReportData) {
                                 Text(sub, color = if (p.partial) c.warn else c.textTertiary, style = MaterialTheme.typography.labelSmall, fontWeight = if (p.partial) FontWeight.Bold else FontWeight.Normal)
                             }
                         }
-                        DualMoney(p.amount, compact = true, style = MaterialTheme.typography.bodySmall)
+                        Column(horizontalAlignment = Alignment.End) {
+                            DualMoney(p.amount, compact = true, style = MaterialTheme.typography.bodySmall)
+                            if (p.partial) {
+                                Text("remaining ${dualString(p.remaining)}", color = c.warn, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
                     }
                 }
+            }
+
+            Section("Expenses this month") {
+                if (r.expenseItems.isEmpty()) Text("No expenses recorded.", color = c.textTertiary, style = MaterialTheme.typography.bodySmall)
+                // Show the reason (label) with its category + date as a sublabel.
+                r.expenseItems.forEach { e -> ExpenseLineRow(e.label, "${e.category.label} · ${formatDayLong(e.date)}", e.amount) }
+                Line("Total spent", r.totalSpent, tone = c.flowOut, strong = true)
             }
 
             Section("Box balance") {
@@ -319,9 +326,9 @@ private fun ReportCard(r: ReportData) {
             if (r.unpaid.isNotEmpty()) {
                 Section("Still due") {
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        r.unpaid.forEach { (name, owner) ->
+                        r.unpaid.forEach { u ->
                             Box(Modifier.clip(RoundedCornerShape(50)).background(c.flowOutSoft).padding(horizontal = 10.dp, vertical = 5.dp)) {
-                                Text("$name · $owner", color = c.flowOut, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                                Text("${u.name} · ${u.owner} · ${floorLabel(u.floor)}", color = c.flowOut, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
                             }
                         }
                     }

@@ -11,38 +11,72 @@ data class Due(
     val month: String,
     val title: String,
     val amount: DualAmount,
+    /** How much of [amount] the owner has actually paid against this due. */
+    val paidAmount: DualAmount,
+    /** True iff [paidAmount] fully covers [amount]. Derived — legacy field kept for existing call sites. */
     val paid: Boolean,
     val paidOn: String?,
     val base: Boolean,
-)
+) {
+    val remaining: DualAmount get() = amount - paidAmount
+    val isFullyPaid: Boolean get() = fullyCovers(paidAmount, amount)
+    val isUntouched: Boolean get() = paidAmount.usdCents == 0L && paidAmount.lbp == 0L
+}
 
-/** RTDB shape under /dues/$month/$aptId/$dueId. */
+/**
+ * `paid` covers `total` when neither currency is short. Used as the single source
+ * of truth for the derived `paid` flag on both the domain and the DTO.
+ */
+fun fullyCovers(paid: DualAmount, total: DualAmount): Boolean =
+    paid.usdCents >= total.usdCents && paid.lbp >= total.lbp
+
+/**
+ * RTDB shape under /dues/$month/$aptId/$dueId.
+ *
+ * [paidUsdCents]/[paidLbp] were added when per-due partial payments were introduced.
+ * Older records only have [paid]+[usdCents]+[lbp]; [DueDto.toDomain] translates them
+ * so no batch migration is required.
+ */
 @Serializable
 data class DueDto(
     val title: String = "",
     val usdCents: Long = 0,
     val lbp: Long = 0,
+    val paidUsdCents: Long = 0,
+    val paidLbp: Long = 0,
     val paid: Boolean = false,
     val paidOn: String? = null,
     val base: Boolean = false,
 )
 
-fun DueDto.toDomain(id: String, apartmentId: String, month: String) = Due(
-    id = id,
-    apartmentId = apartmentId,
-    month = month,
-    title = title,
-    amount = DualAmount(usdCents, lbp),
-    paid = paid,
-    paidOn = paidOn,
-    base = base,
-)
+fun DueDto.toDomain(id: String, apartmentId: String, month: String): Due {
+    val amount = DualAmount(usdCents, lbp)
+    // New-shape record if any paid* field is populated; else fall back to legacy
+    // boolean (paid=true → fully paid, paid=false → untouched).
+    val paidAmount = when {
+        paidUsdCents > 0L || paidLbp > 0L -> DualAmount(paidUsdCents, paidLbp)
+        paid -> amount
+        else -> DualAmount.ZERO
+    }
+    return Due(
+        id = id,
+        apartmentId = apartmentId,
+        month = month,
+        title = title,
+        amount = amount,
+        paidAmount = paidAmount,
+        paid = fullyCovers(paidAmount, amount),
+        paidOn = paidOn,
+        base = base,
+    )
+}
 
 data class DueInput(
     val title: String,
     val usdCents: Long,
     val lbp: Long,
-    val paid: Boolean,
+    val paidUsdCents: Long,
+    val paidLbp: Long,
     val paidOn: String?,
 )
 
@@ -61,15 +95,16 @@ data class ApartmentMonth(
 
 fun statusOf(dues: List<Due>): PaymentStatus = when {
     dues.isEmpty() -> PaymentStatus.NONE
-    dues.all { it.paid } -> PaymentStatus.PAID
-    dues.none { it.paid } -> PaymentStatus.UNPAID
+    dues.all { it.isFullyPaid } -> PaymentStatus.PAID
+    dues.all { it.isUntouched } -> PaymentStatus.UNPAID
     else -> PaymentStatus.PARTIAL
 }
 
 fun aggregate(apartmentId: String, month: String, dues: List<Due>): ApartmentMonth {
     val ordered = dues.sortedByDescending { it.base }
     val total = ordered.fold(DualAmount.ZERO) { a, d -> a + d.amount }
-    val paid = ordered.filter { it.paid }.fold(DualAmount.ZERO) { a, d -> a + d.amount }
+    // Sum actual paid amount per due (partial or full); no longer boolean-filtered.
+    val paid = ordered.fold(DualAmount.ZERO) { a, d -> a + d.paidAmount }
     return ApartmentMonth(apartmentId, month, ordered, total, paid, total - paid, statusOf(ordered))
 }
 

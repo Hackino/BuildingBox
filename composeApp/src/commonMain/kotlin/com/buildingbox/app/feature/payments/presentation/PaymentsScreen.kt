@@ -1,5 +1,6 @@
 package com.buildingbox.app.feature.payments.presentation
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -15,6 +16,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -23,6 +26,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,6 +52,7 @@ import com.buildingbox.app.core.money.formatLbp
 import com.buildingbox.app.core.money.formatUsd
 import com.buildingbox.app.feature.calendar.domain.Expense
 import com.buildingbox.app.feature.calendar.presentation.AddExpenseSheet
+import com.buildingbox.app.feature.payments.domain.Due
 import com.buildingbox.app.feature.payments.domain.PaymentStatus
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -140,18 +145,113 @@ private fun Pot(label: String, value: String) {
 @Composable
 private fun PaymentRowItem(row: PaymentRow, onClick: () -> Unit) {
     val c = LocalAppColors.current
-    AppCard(Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable(onClick = onClick)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Avatar(row.apartment.ownerName, 42.dp)
-            Column(Modifier.weight(1f)) {
-                Text(row.apartment.ownerName, fontWeight = FontWeight.SemiBold)
-                Text("${row.apartment.name} · total ${dualString(row.month.total)}", style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
-                if (row.month.status == PaymentStatus.PARTIAL) {
-                    Text("${dualString(row.month.remaining)} left", style = MaterialTheme.typography.labelSmall, color = c.flowOut, fontWeight = FontWeight.Bold)
+    // Persisted across scroll + recomposition, keyed by apartment so each row
+    // remembers its own expanded state.
+    var expanded by rememberSaveable(row.apartment.id) { mutableStateOf(false) }
+
+    AppCard(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Column(Modifier.fillMaxWidth()) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                // Tap surface for navigation: the whole "avatar + name column" block —
+                // NEVER the trailing chevron. Keeps expansion strictly opt-in.
+                Row(
+                    Modifier.weight(1f).clickable(onClick = onClick),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Avatar(row.apartment.ownerName, 42.dp)
+                    Column(Modifier.weight(1f)) {
+                        Text(row.apartment.ownerName, fontWeight = FontWeight.SemiBold)
+                        Text("${row.apartment.name} · total ${dualString(row.month.total)}", style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+                        if (row.month.status == PaymentStatus.PARTIAL) {
+                            Text("${dualString(row.month.remaining)} left", style = MaterialTheme.typography.labelSmall, color = c.flowOut, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+                StatusPill(row.month.status.label(), row.month.status.tone())
+                IconButton(onClick = { expanded = !expanded }) {
+                    Icon(
+                        if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                        contentDescription = if (expanded) "Hide details" else "Show details",
+                    )
                 }
             }
-            StatusPill(row.month.status.label(), row.month.status.tone())
+            AnimatedVisibility(visible = expanded) {
+                UnitBreakdown(row)
+            }
         }
+    }
+}
+
+/**
+ * The expandable body under each unit row on the Payments tab. Shows per-currency
+ * paid/total/remaining plus a compact per-due list. Read-only — editing still
+ * happens via Unit Detail.
+ */
+@Composable
+private fun UnitBreakdown(row: PaymentRow) {
+    val c = LocalAppColors.current
+    val m = row.month
+    Column(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+        // Thin separator to visually detach the breakdown from the row header.
+        Box(Modifier.fillMaxWidth().size(1.dp).padding(bottom = 8.dp))
+
+        if (m.total.hasUsd) BreakdownLine("USD", formatUsd(m.paid.usdCents), formatUsd(m.total.usdCents), formatUsd((m.total - m.paid).usdCents), m.paid.usdCents >= m.total.usdCents)
+        if (m.total.hasLbp) BreakdownLine("LBP", formatLbp(m.paid.lbp, true), formatLbp(m.total.lbp, true), formatLbp((m.total - m.paid).lbp, true), m.paid.lbp >= m.total.lbp)
+
+        if (m.dues.isNotEmpty()) {
+            Text(
+                "Dues".uppercase(),
+                color = c.textTertiary,
+                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
+            )
+            m.dues.forEach { d -> DueLine(d) }
+        }
+    }
+}
+
+@Composable
+private fun BreakdownLine(currency: String, paid: String, total: String, remaining: String, fully: Boolean) {
+    val c = LocalAppColors.current
+    val mono = com.buildingbox.app.core.designsystem.LocalAppFonts.current.mono
+    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(currency, color = c.textTertiary, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+            Text("paid $paid / $total", fontFamily = mono, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            Text(
+                if (fully) "fully paid" else "remaining $remaining",
+                color = if (fully) c.flowIn else c.flowOut,
+                fontFamily = if (fully) null else mono,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+    }
+}
+
+@Composable
+private fun DueLine(d: Due) {
+    val c = LocalAppColors.current
+    val partial = !d.isFullyPaid && !d.isUntouched
+    Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(d.title, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+            Text(
+                "${dualString(d.paidAmount)} / ${dualString(d.amount)}",
+                color = c.textTertiary,
+                style = MaterialTheme.typography.labelSmall,
+            )
+        }
+        val (label, tone) = when {
+            d.isFullyPaid -> "Paid" to c.flowIn
+            partial -> "Partial · ${dualString(d.remaining)} left" to c.warn
+            else -> "Unpaid" to c.flowOut
+        }
+        Text(label, color = tone, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -167,10 +267,13 @@ private fun ByDayView(
     // unit, and the paid date so each item can show it).
     data class Paid(val apartmentId: String, val owner: String, val title: String, val date: String, val amount: com.buildingbox.app.core.money.DualAmount)
     val byDay = remember(state) {
+        // Include partial dues too — they carry a paidOn once anything is paid.
+        // The row amount shows the paidAmount (not total) so a $200/$500 partial
+        // renders as "+$200" on the day it was paid.
         state.rows.flatMap { r ->
-            r.month.dues.filter { it.paid }.map { d ->
+            r.month.dues.filter { !it.isUntouched }.map { d ->
                 val on = d.paidOn ?: today()
-                on to Paid(r.apartment.id, r.apartment.ownerName, d.title, on, d.amount)
+                on to Paid(r.apartment.id, r.apartment.ownerName, d.title, on, d.paidAmount)
             }
         }
             .groupBy({ it.first }, { it.second })

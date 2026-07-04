@@ -56,6 +56,7 @@ import com.buildingbox.app.core.designsystem.DualMoney
 import com.buildingbox.app.core.designsystem.LocalAppColors
 import com.buildingbox.app.core.designsystem.SegmentedControl
 import com.buildingbox.app.core.designsystem.StatusPill
+import com.buildingbox.app.core.designsystem.dualString
 import com.buildingbox.app.feature.payments.domain.ApartmentMonth
 import com.buildingbox.app.feature.payments.domain.Due
 import com.buildingbox.app.feature.payments.domain.DuesRepository
@@ -255,21 +256,46 @@ private fun MonthHistory(am: ApartmentMonth, isAdmin: Boolean, onEditDue: (Due) 
                     Text("No dues this month.", color = c.textTertiary, style = MaterialTheme.typography.bodySmall)
                 }
                 am.dues.forEach { due ->
+                    // Tri-state per-due row: PAID (checkmark + "Paid"),
+                    // PARTIAL (half-fill + "Partial · X left"), UNPAID (empty box + "Unpaid").
+                    val partial = !due.isFullyPaid && !due.isUntouched
                     Row(
                         Modifier.fillMaxWidth().padding(vertical = 8.dp)
                             .then(if (isAdmin) Modifier.clickable { onEditDue(due) } else Modifier),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        PaidMark(due.paid)
+                        PaidMark(fullyPaid = due.isFullyPaid, partial = partial)
                         Column(Modifier.weight(1f)) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text(due.title, fontWeight = FontWeight.SemiBold)
                                 if (due.base) Text("BASE", style = MaterialTheme.typography.labelSmall, color = c.textTertiary)
                             }
                             DualMoney(due.amount, compact = true, style = MaterialTheme.typography.bodySmall, weight = FontWeight.Medium)
+                            if (partial) {
+                                Text(
+                                    "paid ${dualString(due.paidAmount)}",
+                                    color = c.textTertiary,
+                                    style = MaterialTheme.typography.labelSmall,
+                                )
+                            }
                         }
-                        Text(if (due.paid) "Paid" else "Unpaid", color = if (due.paid) c.flowIn else c.flowOut, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+                        Column(horizontalAlignment = Alignment.End) {
+                            val (label, tone) = when {
+                                due.isFullyPaid -> "Paid" to c.flowIn
+                                partial -> "Partial" to c.warn
+                                else -> "Unpaid" to c.flowOut
+                            }
+                            Text(label, color = tone, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+                            if (partial) {
+                                Text(
+                                    "${dualString(due.remaining)} left",
+                                    color = c.warn,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                        }
                     }
                 }
                 if (isAdmin) {
@@ -287,13 +313,17 @@ private fun MonthHistory(am: ApartmentMonth, isAdmin: Boolean, onEditDue: (Due) 
 }
 
 @Composable
-private fun PaidMark(paid: Boolean) {
+private fun PaidMark(fullyPaid: Boolean, partial: Boolean) {
     val c = LocalAppColors.current
-    if (paid) {
-        Box(Modifier.size(22.dp).clip(RoundedCornerShape(7.dp)).background(c.flowIn), contentAlignment = Alignment.Center) {
+    when {
+        fullyPaid -> Box(Modifier.size(22.dp).clip(RoundedCornerShape(7.dp)).background(c.flowIn), contentAlignment = Alignment.Center) {
             Icon(Icons.Filled.Check, null, tint = Color.White, modifier = Modifier.size(14.dp))
         }
-    } else {
-        Box(Modifier.size(22.dp).clip(RoundedCornerShape(7.dp)).border(2.dp, c.hairline, RoundedCornerShape(7.dp)))
+        partial -> Box(
+            Modifier.size(22.dp).clip(RoundedCornerShape(7.dp))
+                .border(2.dp, c.warn, RoundedCornerShape(7.dp))
+                .background(c.warn.copy(alpha = 0.18f)),
+        )
+        else -> Box(Modifier.size(22.dp).clip(RoundedCornerShape(7.dp)).border(2.dp, c.hairline, RoundedCornerShape(7.dp)))
     }
 }

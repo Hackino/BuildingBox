@@ -7,6 +7,7 @@ import com.buildingbox.app.feature.payments.domain.Due
 import com.buildingbox.app.feature.payments.domain.DueDto
 import com.buildingbox.app.feature.payments.domain.DueInput
 import com.buildingbox.app.feature.payments.domain.DuesRepository
+import com.buildingbox.app.feature.payments.domain.fullyCovers
 import com.buildingbox.app.feature.payments.domain.toDomain
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -33,10 +34,14 @@ class DuesRepositoryImpl(private val db: RealtimeDb) : DuesRepository {
         }
 
     override suspend fun setPaid(due: Due, paid: Boolean): Result<Unit> = runCatching {
+        // Tap-to-toggle: fully-paid → paidAmount matches the total; otherwise → zero.
+        val paidAmount = if (paid) due.amount else DualAmount.ZERO
         val dto = DueDto(
             title = due.title,
             usdCents = due.amount.usdCents,
             lbp = due.amount.lbp,
+            paidUsdCents = paidAmount.usdCents,
+            paidLbp = paidAmount.lbp,
             paid = paid,
             paidOn = if (paid) (due.paidOn ?: today()) else null,
             base = due.base,
@@ -88,12 +93,21 @@ class DuesRepositoryImpl(private val db: RealtimeDb) : DuesRepository {
     }
 }
 
-private fun DueInput.toDto(base: Boolean) = DueDto(
-    title = title,
-    usdCents = usdCents,
-    lbp = lbp,
-    paid = paid,
-    // Stamp the pay date in the DB so it's not inferred/faked downstream.
-    paidOn = if (paid) (paidOn ?: today()) else null,
-    base = base,
-)
+private fun DueInput.toDto(base: Boolean): DueDto {
+    val total = DualAmount(usdCents, lbp)
+    val paidAmount = DualAmount(paidUsdCents, paidLbp)
+    val paid = fullyCovers(paidAmount, total)
+    val touched = paidUsdCents > 0L || paidLbp > 0L
+    return DueDto(
+        title = title,
+        usdCents = usdCents,
+        lbp = lbp,
+        paidUsdCents = paidUsdCents,
+        paidLbp = paidLbp,
+        paid = paid,
+        // Stamp the pay date in the DB so it's not inferred/faked downstream.
+        // Written whenever any amount has been paid, not only when fully paid.
+        paidOn = if (touched) (paidOn ?: today()) else null,
+        base = base,
+    )
+}

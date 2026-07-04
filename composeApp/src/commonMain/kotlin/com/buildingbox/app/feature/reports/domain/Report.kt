@@ -12,6 +12,7 @@ import com.buildingbox.app.feature.payments.domain.Due
 import com.buildingbox.app.feature.payments.domain.PaymentStatus
 import com.buildingbox.app.feature.payments.domain.aggregate
 import com.buildingbox.app.feature.units.domain.Apartment
+import com.buildingbox.app.feature.units.domain.floorLabel
 import kotlinx.serialization.Serializable
 
 /** /building meta. */
@@ -22,7 +23,18 @@ data class BuildingDto(
     val currentMonth: String = "",
 )
 
-data class PaidEntry(val name: String, val owner: String, val amount: DualAmount, val partial: Boolean, val date: String?)
+data class PaidEntry(
+    val name: String,
+    val owner: String,
+    val floor: Int,
+    val amount: DualAmount,
+    /** Remaining amount for the month; only meaningful when [partial] is true. */
+    val remaining: DualAmount,
+    val partial: Boolean,
+    val date: String?,
+)
+
+data class UnpaidEntry(val name: String, val owner: String, val floor: Int)
 
 /** One expense line in the report — carries its reason ([label]) plus category and date. */
 data class ExpenseLine(val label: String, val category: ExpenseCategory, val amount: DualAmount, val date: String)
@@ -41,7 +53,7 @@ data class ReportData(
     val expenseItems: List<ExpenseLine>,
     val totalSpent: DualAmount,
     val paidList: List<PaidEntry>,
-    val unpaid: List<Pair<String, String>>,
+    val unpaid: List<UnpaidEntry>,
     val opening: DualAmount,
     val net: DualAmount,
     val closing: DualAmount,
@@ -79,9 +91,18 @@ fun buildReport(
         .map { (a, am) ->
             // Most recent pay date among this unit's paid dues this month.
             val paidOn = am.dues.filter { it.paid }.mapNotNull { it.paidOn }.maxOrNull()
-            PaidEntry(a.name, a.ownerName, am.paid, am.status == PaymentStatus.PARTIAL, paidOn)
+            PaidEntry(
+                name = a.name,
+                owner = a.ownerName,
+                floor = a.floor,
+                amount = am.paid,
+                remaining = am.remaining,
+                partial = am.status == PaymentStatus.PARTIAL,
+                date = paidOn,
+            )
         }
-    val unpaid = withDues.filter { it.second.status != PaymentStatus.PAID }.map { (a, _) -> a.name to a.ownerName }
+    val unpaid = withDues.filter { it.second.status != PaymentStatus.PAID }
+        .map { pair -> UnpaidEntry(pair.first.name, pair.first.ownerName, pair.first.floor) }
 
     // Balance in the box at the end of any month = paid dues − expenses up to and including it.
     fun balanceAsOf(m: String): DualAmount =
@@ -135,6 +156,14 @@ fun reportToText(r: ReportData): String {
         "This month (${if (r.isGain) "gain" else "loss"}): ${dual(r.net)}",
         "Closing balance: ${dual(r.closing)}",
     )
+    if (r.paidList.isNotEmpty()) {
+        lines += ""; lines += "Paid:"
+        r.paidList.forEach {
+            val on = it.date?.let { d -> ", ${formatDayLong(d)}" } ?: ""
+            val partialTail = if (it.partial) " (partial · remaining ${dual(it.remaining)})" else ""
+            lines += "✓ ${it.owner} · ${floorLabel(it.floor)} · ${it.name}: ${dual(it.amount)}$partialTail$on"
+        }
+    }
     if (r.expenseItems.isNotEmpty()) {
         lines += ""; lines += "Expenses:"
         r.expenseItems.forEach { e ->
@@ -142,16 +171,9 @@ fun reportToText(r: ReportData): String {
             lines += "• $reason (${e.category.label}, ${formatDayLong(e.date)}): ${dual(e.amount)}"
         }
     }
-    if (r.paidList.isNotEmpty()) {
-        lines += ""; lines += "Paid:"
-        r.paidList.forEach {
-            val on = it.date?.let { d -> ", ${formatDayLong(d)}" } ?: ""
-            lines += "✓ ${it.name} — ${it.owner}: ${dual(it.amount)}${if (it.partial) " (partial)" else ""}$on"
-        }
-    }
     if (r.unpaid.isNotEmpty()) {
         lines += ""; lines += "Still due:"
-        r.unpaid.forEach { lines += "• ${it.first} — ${it.second}" }
+        r.unpaid.forEach { lines += "• ${it.name} — ${it.owner} · ${floorLabel(it.floor)}" }
     }
     lines += ""; lines += "— Sent from BuildingBox"
     return lines.joinToString("\n")
