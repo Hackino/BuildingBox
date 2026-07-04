@@ -1,6 +1,7 @@
 package com.buildingbox.app.feature.payments.presentation
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,8 +14,8 @@ import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
@@ -33,6 +34,8 @@ import com.buildingbox.app.core.datetime.formatDayLong
 import com.buildingbox.app.core.datetime.formatMonth
 import com.buildingbox.app.core.datetime.today
 import com.buildingbox.app.core.designsystem.LocalAppColors
+import com.buildingbox.app.core.designsystem.dualString
+import com.buildingbox.app.core.money.DualAmount
 import com.buildingbox.app.feature.payments.domain.Due
 import com.buildingbox.app.feature.payments.domain.DueInput
 import kotlinx.datetime.LocalDate
@@ -40,7 +43,12 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.atStartOfDayIn
 import kotlinx.datetime.toLocalDateTime
 
-/** Add/edit a single due (title, dual amount, paid, paid-date). Used from Unit-Detail history. */
+/**
+ * Add/edit a single due — captures the expected **total** (USD + LBP) and how much
+ * of it has been **paid so far** (USD + LBP), plus the payment date once anything
+ * is paid. Save is blocked when paid > total in either currency to prevent
+ * negative remaining values leaking into Reports / Payments / Dashboard.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DueEditor(
@@ -54,24 +62,42 @@ fun DueEditor(
     var title by remember { mutableStateOf(initial?.title ?: "") }
     var usd by remember { mutableStateOf(initial?.let { (it.amount.usdCents / 100.0).toString() } ?: "0") }
     var lbp by remember { mutableStateOf((initial?.amount?.lbp ?: 0L).toString()) }
-    var paid by remember { mutableStateOf(initial?.paid ?: false) }
-    // Prefilled from the existing pay date so editing never overwrites it; defaults
-    // to today only for a freshly-marked-paid due that has none yet.
+    // Paid-so-far mirrors the total row. Legacy records with `paid=true` but no
+    // paid* fields already surface as `paidAmount = amount` via toDomain(), so
+    // this prefill naturally covers both new and legacy shapes.
+    var paidUsd by remember { mutableStateOf(initial?.let { (it.paidAmount.usdCents / 100.0).toString() } ?: "0") }
+    var paidLbpStr by remember { mutableStateOf((initial?.paidAmount?.lbp ?: 0L).toString()) }
+    // Pre-fill from the existing pay date so editing never overwrites it; defaults
+    // to today only when the user first crosses zero on the paid row.
     var paidOn by remember { mutableStateOf(initial?.paidOn ?: today()) }
 
     var showPicker by remember { mutableStateOf(false) }
     var confirmClose by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
 
+    // Parsed values — recomputed each recomposition; cheap.
+    val totalUsdCents = ((usd.toDoubleOrNull() ?: 0.0) * 100).toLong()
+    val totalLbp = lbp.toLongOrNull() ?: 0L
+    val paidUsdCents = ((paidUsd.toDoubleOrNull() ?: 0.0) * 100).toLong()
+    val paidLbp = paidLbpStr.toLongOrNull() ?: 0L
+    val total = DualAmount(totalUsdCents, totalLbp)
+    val paidAmount = DualAmount(paidUsdCents, paidLbp)
+    val touched = paidUsdCents > 0L || paidLbp > 0L
+    val overpaid = paidUsdCents > totalUsdCents || paidLbp > totalLbp
+    val remaining = total - paidAmount
+    val fullyPaid = touched && !overpaid && paidUsdCents == totalUsdCents && paidLbp == totalLbp
+
     fun isDirty(): Boolean {
         val i = initial
         return if (i == null) {
-            title.isNotBlank() || usd != "0" || lbp != "0" || paid
+            title.isNotBlank() || usd != "0" || lbp != "0" || paidUsd != "0" || paidLbpStr != "0"
         } else {
             title != i.title ||
                 usd != (i.amount.usdCents / 100.0).toString() ||
-                lbp != i.amount.lbp.toString() || paid != i.paid ||
-                (paid && paidOn != (i.paidOn ?: today()))
+                lbp != i.amount.lbp.toString() ||
+                paidUsd != (i.paidAmount.usdCents / 100.0).toString() ||
+                paidLbpStr != i.paidAmount.lbp.toString() ||
+                (touched && paidOn != (i.paidOn ?: today()))
         }
     }
 
@@ -79,27 +105,63 @@ fun DueEditor(
         if (isDirty()) confirmClose = true else onDismiss()
     }
 
+    val canSave = title.isNotBlank() && !overpaid
+
     AlertDialog(
         onDismissRequest = ::attemptDismiss,
         title = {
             Column {
                 Text(if (initial == null) "Add due" else "Edit due")
                 // The month/year this due belongs to (its RTDB shard). Read-only.
-                Text(formatMonth(month), style = androidx.compose.material3.MaterialTheme.typography.labelMedium, color = c.textTertiary)
+                Text(formatMonth(month), style = MaterialTheme.typography.labelMedium, color = c.textTertiary)
             }
         },
         text = {
             Column {
                 OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Title") }, singleLine = true, enabled = initial?.base != true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(value = usd, onValueChange = { usd = it }, label = { Text("Amount (USD)") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
-                OutlinedTextField(value = lbp, onValueChange = { lbp = it.filter(Char::isDigit) }, label = { Text("Amount (LBP)") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
-                Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Paid", modifier = Modifier.weight(1f))
-                    Switch(checked = paid, onCheckedChange = { paid = it })
+
+                // — Expected total —
+                SectionLabel("Total expected", modifier = Modifier.padding(top = 12.dp))
+                OutlinedTextField(value = usd, onValueChange = { usd = it }, label = { Text("Total (USD)") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
+                OutlinedTextField(value = lbp, onValueChange = { lbp = it.filter(Char::isDigit) }, label = { Text("Total (LBP)") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+
+                // — Paid so far —
+                SectionLabel("Paid so far", modifier = Modifier.padding(top = 16.dp))
+                OutlinedTextField(value = paidUsd, onValueChange = { paidUsd = it }, label = { Text("Paid (USD)") }, singleLine = true, isError = paidUsdCents > totalUsdCents, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
+                OutlinedTextField(value = paidLbpStr, onValueChange = { paidLbpStr = it.filter(Char::isDigit) }, label = { Text("Paid (LBP)") }, singleLine = true, isError = paidLbp > totalLbp, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+
+                // — Live status hint below the paid row —
+                Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    when {
+                        overpaid -> Text(
+                            "Paid cannot exceed total",
+                            color = c.flowOut,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        fullyPaid -> Text(
+                            "Fully paid ✓",
+                            color = c.flowIn,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        touched -> Text(
+                            "Remaining ${dualString(remaining)}",
+                            color = c.warn,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        else -> Text(
+                            "Not paid yet",
+                            color = c.textTertiary,
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                    }
                 }
-                // Payment-date picker — only relevant (and shown) when the due is paid.
-                if (paid) {
-                    Box(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+
+                // Payment-date picker — only relevant once any amount has been paid.
+                if (touched) {
+                    Box(Modifier.fillMaxWidth().padding(top = 12.dp)) {
                         OutlinedTextField(
                             value = formatDayLong(paidOn),
                             onValueChange = {},
@@ -115,18 +177,21 @@ fun DueEditor(
             }
         },
         confirmButton = {
-            TextButton(onClick = {
-                if (title.isBlank()) return@TextButton
-                onSave(
-                    DueInput(
-                        title = title.trim(),
-                        usdCents = ((usd.toDoubleOrNull() ?: 0.0) * 100).toLong(),
-                        lbp = lbp.toLongOrNull() ?: 0,
-                        paid = paid,
-                        paidOn = if (paid) paidOn else null,
-                    ),
-                )
-            }) { Text("Save") }
+            TextButton(
+                enabled = canSave,
+                onClick = {
+                    onSave(
+                        DueInput(
+                            title = title.trim(),
+                            usdCents = totalUsdCents,
+                            lbp = totalLbp,
+                            paidUsdCents = paidUsdCents,
+                            paidLbp = paidLbp,
+                            paidOn = if (touched) paidOn else null,
+                        ),
+                    )
+                },
+            ) { Text("Save") }
         },
         dismissButton = {
             Row {
@@ -175,6 +240,18 @@ fun DueEditor(
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
         )
     }
+}
+
+@Composable
+private fun SectionLabel(text: String, modifier: Modifier = Modifier) {
+    val c = LocalAppColors.current
+    Text(
+        text.uppercase(),
+        color = c.textTertiary,
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.Bold,
+        modifier = modifier,
+    )
 }
 
 // --- date ⇄ millis helpers for the Material date picker (UTC, date-only) ---

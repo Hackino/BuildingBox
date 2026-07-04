@@ -86,7 +86,12 @@ class CalendarViewModel(
 
     private fun build(m: String, apts: List<Apartment>, dues: List<Due>, exp: List<com.buildingbox.app.feature.calendar.domain.Expense>): CalendarUiState {
         val nameById = apts.associate { it.id to it }
-        val inMoves = dues.filter { it.paid }.map { d ->
+        // Cash-flow: include any due that has received money (fully or partial),
+        // and count the actual paidAmount rather than the total. Under the old
+        // all-or-nothing model this was `filter { it.paid }.amount`; a partial
+        // due had no `paidOn` and never contributed. Now a $200 payment against
+        // a $500 due shows as +$200 on the day it was paid.
+        val inMoves = dues.filter { !it.isUntouched }.map { d ->
             val apt = nameById[d.apartmentId]
             Movement(
                 id = "in_${d.apartmentId}_${d.id}",
@@ -94,7 +99,7 @@ class CalendarViewModel(
                 date = d.paidOn ?: dateOf(m, 1),
                 label = "${apt?.name ?: "Unit"} — ${d.title}",
                 sublabel = apt?.ownerName,
-                amount = d.amount,
+                amount = d.paidAmount,
                 apartmentId = d.apartmentId,
             )
         }

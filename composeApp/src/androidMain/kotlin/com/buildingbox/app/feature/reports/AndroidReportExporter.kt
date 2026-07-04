@@ -26,6 +26,7 @@ import com.buildingbox.app.core.money.formatLbp
 import com.buildingbox.app.core.money.formatUsd
 import com.buildingbox.app.feature.reports.domain.ReportData
 import com.buildingbox.app.feature.reports.domain.ReportExporter
+import com.buildingbox.app.feature.units.domain.floorLabel
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
@@ -242,6 +243,24 @@ class AndroidReportExporter(private val context: Context) : ReportExporter {
         )
 
         sectionCard(
+            "Paid this month · ${r.paidList.size}",
+            if (r.paidList.isEmpty()) listOf(Ln("No payments yet", "—", SECONDARY))
+            else buildList {
+                r.paidList.forEach {
+                    val on = it.date?.let { d -> " · ${formatDayLong(d)}" } ?: ""
+                    add(
+                        Ln(
+                            "${it.owner} · ${floorLabel(it.floor)} · ${it.name}${if (it.partial) "  (partial)" else ""}$on",
+                            dual(it.amount),
+                            if (it.partial) WARN else FLOW_IN,
+                        ),
+                    )
+                    if (it.partial) add(Ln("    remaining", dual(it.remaining), WARN))
+                }
+            },
+        )
+
+        sectionCard(
             "Expenses this month",
             buildList {
                 if (r.expenseItems.isEmpty()) add(Ln("No expenses", "—", SECONDARY))
@@ -253,17 +272,8 @@ class AndroidReportExporter(private val context: Context) : ReportExporter {
             },
         )
 
-        sectionCard(
-            "Paid this month · ${r.paidList.size}",
-            if (r.paidList.isEmpty()) listOf(Ln("No payments yet", "—", SECONDARY))
-            else r.paidList.map {
-                val on = it.date?.let { d -> " · ${formatDayLong(d)}" } ?: ""
-                Ln("${it.name} · ${it.owner}${if (it.partial) "  (partial)" else ""}$on", dual(it.amount), if (it.partial) WARN else FLOW_IN)
-            },
-        )
-
         if (r.unpaid.isNotEmpty()) {
-            sectionCard("Still due", emptyList(), chips = r.unpaid.map { "${it.first} · ${it.second}" })
+            sectionCard("Still due", emptyList(), chips = r.unpaid.map { "${it.name} · ${it.owner} · ${floorLabel(it.floor)}" })
         }
 
         // Box balance last — after Paid this month and Still due.
