@@ -49,22 +49,24 @@ class DashboardViewModel(
 
     private fun build(apts: List<Apartment>, allDues: List<Due>, allExp: List<Expense>): DashboardUiState {
         val month = currentMonth()
-        val paidDues = allDues.filter { it.paid }
+        // Every balance/inflow figure sums paidAmount (partial-aware) — the boolean
+        // `paid` flag is a cache and would silently drop partial payments.
+        val touched = allDues.filter { !it.isUntouched }
 
-        val balance = paidDues.fold(DualAmount.ZERO) { a, d -> a + d.amount } -
+        val balance = allDues.fold(DualAmount.ZERO) { a, d -> a + d.paidAmount } -
             allExp.fold(DualAmount.ZERO) { a, e -> a + e.amount }
 
         val monthDues = allDues.filter { it.month == month }
-        val inThis = monthDues.filter { it.paid }.fold(DualAmount.ZERO) { a, d -> a + d.amount }
+        val inThis = monthDues.fold(DualAmount.ZERO) { a, d -> a + d.paidAmount }
         val outThis = allExp.filter { it.month == month }.fold(DualAmount.ZERO) { a, e -> a + e.amount }
 
         val statuses = apts.map { a -> statusOf(monthDues.filter { it.apartmentId == a.id }) }
 
-        // Recent movements across the box.
+        // Recent movements across the box — any due with a payment (partial or full) shows up.
         val nameById = apts.associateBy { it.id }
-        val inMoves = paidDues.map { d ->
+        val inMoves = touched.map { d ->
             val apt = nameById[d.apartmentId]
-            Movement("in_${d.month}_${d.apartmentId}_${d.id}", MovementKind.IN, d.paidOn ?: dateOf(d.month, 1), "${apt?.name ?: "Unit"} — ${d.title}", apt?.ownerName, d.amount, apartmentId = d.apartmentId)
+            Movement("in_${d.month}_${d.apartmentId}_${d.id}", MovementKind.IN, d.paidOn ?: dateOf(d.month, 1), "${apt?.name ?: "Unit"} — ${d.title}", apt?.ownerName, d.paidAmount, apartmentId = d.apartmentId)
         }
         val outMoves = allExp.map { e -> Movement("out_${e.month}_${e.id}", MovementKind.OUT, e.date, e.label, e.category.label, e.amount) }
         val recent = (inMoves + outMoves).sortedByDescending { it.date }.take(5)
@@ -74,7 +76,7 @@ class DashboardViewModel(
         val trendLbp = mutableListOf<Float>()
         for (i in 4 downTo 0) {
             val upto = shiftMonth(month, -i)
-            val pIn = paidDues.filter { monthOf(it.paidOn ?: dateOf(it.month, 1)) <= upto }.fold(DualAmount.ZERO) { a, d -> a + d.amount }
+            val pIn = touched.filter { monthOf(it.paidOn ?: dateOf(it.month, 1)) <= upto }.fold(DualAmount.ZERO) { a, d -> a + d.paidAmount }
             val pOut = allExp.filter { monthOf(it.date) <= upto }.fold(DualAmount.ZERO) { a, e -> a + e.amount }
             trendUsd.add((pIn.usdCents - pOut.usdCents).toFloat())
             trendLbp.add((pIn.lbp - pOut.lbp).toFloat())

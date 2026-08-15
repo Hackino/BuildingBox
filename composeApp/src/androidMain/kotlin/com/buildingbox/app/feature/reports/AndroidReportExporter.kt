@@ -250,12 +250,11 @@ class AndroidReportExporter(private val context: Context) : ReportExporter {
                     val on = it.date?.let { d -> " · ${formatDayLong(d)}" } ?: ""
                     add(
                         Ln(
-                            "${it.owner} · ${floorLabel(it.floor)} · ${it.name}${if (it.partial) "  (partial)" else ""}$on",
+                            "${it.owner} · ${floorLabel(it.floor)} · ${it.name}$on",
                             dual(it.amount),
-                            if (it.partial) WARN else FLOW_IN,
+                            FLOW_IN,
                         ),
                     )
-                    if (it.partial) add(Ln("    remaining", dual(it.remaining), WARN))
                 }
             },
         )
@@ -273,7 +272,21 @@ class AndroidReportExporter(private val context: Context) : ReportExporter {
         )
 
         if (r.unpaid.isNotEmpty()) {
-            sectionCard("Still due", emptyList(), chips = r.unpaid.map { "${it.name} · ${it.owner} · ${floorLabel(it.floor)}" })
+            sectionCard(
+                "Still due · ${r.unpaid.size}",
+                buildList {
+                    r.unpaid.forEach { u ->
+                        val tag = if (u.partial) "  (partial · paid ${dual(u.paid)})" else ""
+                        add(
+                            Ln(
+                                "${u.owner} · ${floorLabel(u.floor)} · ${u.name}$tag",
+                                "remaining ${dual(u.remaining)}",
+                                if (u.partial) WARN else FLOW_OUT,
+                            ),
+                        )
+                    }
+                },
+            )
         }
 
         // Box balance last — after Paid this month and Still due.
