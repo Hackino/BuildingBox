@@ -28,13 +28,21 @@ data class PaidEntry(
     val owner: String,
     val floor: Int,
     val amount: DualAmount,
-    /** Remaining amount for the month; only meaningful when [partial] is true. */
-    val remaining: DualAmount,
-    val partial: Boolean,
     val date: String?,
 )
 
-data class UnpaidEntry(val name: String, val owner: String, val floor: Int)
+/**
+ * A unit that still owes money this month — pure unpaid or partially paid.
+ * [partial] units carry non-zero [paid] and a positive [remaining].
+ */
+data class UnpaidEntry(
+    val name: String,
+    val owner: String,
+    val floor: Int,
+    val paid: DualAmount,
+    val remaining: DualAmount,
+    val partial: Boolean,
+)
 
 /** One expense line in the report — carries its reason ([label]) plus category and date. */
 data class ExpenseLine(val label: String, val category: ExpenseCategory, val amount: DualAmount, val date: String)
@@ -86,27 +94,35 @@ fun buildReport(
 
     // "Paid"/"Still due" lists only concern apartments that actually have dues this
     // month — a unit with no dues (status NONE) belongs in neither list.
+    // A PARTIAL apartment appears only in Still-due (with `remaining` shown), never Paid.
     val withDues = months.filter { it.second.status != PaymentStatus.NONE }
-    val paidList = withDues.filter { it.second.status != PaymentStatus.UNPAID }
+    val paidList = withDues.filter { it.second.status == PaymentStatus.PAID }
         .map { (a, am) ->
-            // Most recent pay date among this unit's paid dues this month.
-            val paidOn = am.dues.filter { it.paid }.mapNotNull { it.paidOn }.maxOrNull()
+            // Most recent pay date among this unit's dues this month.
+            val paidOn = am.dues.mapNotNull { it.paidOn }.maxOrNull()
             PaidEntry(
                 name = a.name,
                 owner = a.ownerName,
                 floor = a.floor,
                 amount = am.paid,
-                remaining = am.remaining,
-                partial = am.status == PaymentStatus.PARTIAL,
                 date = paidOn,
             )
         }
     val unpaid = withDues.filter { it.second.status != PaymentStatus.PAID }
-        .map { pair -> UnpaidEntry(pair.first.name, pair.first.ownerName, pair.first.floor) }
+        .map { (a, am) ->
+            UnpaidEntry(
+                name = a.name,
+                owner = a.ownerName,
+                floor = a.floor,
+                paid = am.paid,
+                remaining = am.remaining,
+                partial = am.status == PaymentStatus.PARTIAL,
+            )
+        }
 
-    // Balance in the box at the end of any month = paid dues − expenses up to and including it.
+    // Balance in the box at the end of any month = paid amount (partial-aware) − expenses up to and including it.
     fun balanceAsOf(m: String): DualAmount =
-        allDues.filter { it.paid && it.month <= m }.fold(DualAmount.ZERO) { a, d -> a + d.amount } -
+        allDues.filter { it.month <= m }.fold(DualAmount.ZERO) { a, d -> a + d.paidAmount } -
             allExp.filter { it.month <= m }.fold(DualAmount.ZERO) { a, e -> a + e.amount }
 
     // Opening = exactly last month's closing (what the box started this month with).
@@ -160,8 +176,7 @@ fun reportToText(r: ReportData): String {
         lines += ""; lines += "Paid:"
         r.paidList.forEach {
             val on = it.date?.let { d -> ", ${formatDayLong(d)}" } ?: ""
-            val partialTail = if (it.partial) " (partial · remaining ${dual(it.remaining)})" else ""
-            lines += "✓ ${it.owner} · ${floorLabel(it.floor)} · ${it.name}: ${dual(it.amount)}$partialTail$on"
+            lines += "✓ ${it.owner} · ${floorLabel(it.floor)} · ${it.name}: ${dual(it.amount)}$on"
         }
     }
     if (r.expenseItems.isNotEmpty()) {
@@ -173,7 +188,11 @@ fun reportToText(r: ReportData): String {
     }
     if (r.unpaid.isNotEmpty()) {
         lines += ""; lines += "Still due:"
-        r.unpaid.forEach { lines += "• ${it.name} — ${it.owner} · ${floorLabel(it.floor)}" }
+        r.unpaid.forEach {
+            val tail = if (it.partial) " (partial · paid ${dual(it.paid)} · remaining ${dual(it.remaining)})"
+                else " (remaining ${dual(it.remaining)})"
+            lines += "• ${it.name} — ${it.owner} · ${floorLabel(it.floor)}$tail"
+        }
     }
     lines += ""; lines += "— Sent from BuildingBox"
     return lines.joinToString("\n")

@@ -4,8 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -258,7 +256,6 @@ private fun MonthDropdown(label: String, selected: String, options: List<String>
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ReportCard(r: ReportData) {
     val c = LocalAppColors.current
@@ -286,20 +283,11 @@ private fun ReportCard(r: ReportData) {
                     Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text("${p.owner} · ${floorLabel(p.floor)} · ${p.name}", style = MaterialTheme.typography.bodySmall, maxLines = 1)
-                            val sub = listOfNotNull(
-                                p.date?.let { formatDayLong(it) },
-                                if (p.partial) "partial" else null,
-                            ).joinToString(" · ")
-                            if (sub.isNotEmpty()) {
-                                Text(sub, color = if (p.partial) c.warn else c.textTertiary, style = MaterialTheme.typography.labelSmall, fontWeight = if (p.partial) FontWeight.Bold else FontWeight.Normal)
+                            p.date?.let {
+                                Text(formatDayLong(it), color = c.textTertiary, style = MaterialTheme.typography.labelSmall)
                             }
                         }
-                        Column(horizontalAlignment = Alignment.End) {
-                            DualMoney(p.amount, compact = true, style = MaterialTheme.typography.bodySmall)
-                            if (p.partial) {
-                                Text("remaining ${dualString(p.remaining)}", color = c.warn, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
-                            }
-                        }
+                        DualMoney(p.amount, compact = true, style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
@@ -312,7 +300,9 @@ private fun ReportCard(r: ReportData) {
             }
 
             Section("Box balance") {
-                Line("Closing (last month)", r.opening)
+                // Value shown IS the opening balance for this month (= last month's closing);
+                // the label used to say "Closing (last month)" which misread on screen.
+                Line("Opening (last month)", r.opening)
                 Line("Total collected", r.collected, tone = c.flowIn, sign = "+")
                 Line("Total spent", r.totalSpent, tone = c.flowOut, sign = "−")
                 // This month's gain/loss line — hidden per request.
@@ -324,11 +314,18 @@ private fun ReportCard(r: ReportData) {
             }
 
             if (r.unpaid.isNotEmpty()) {
-                Section("Still due") {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        r.unpaid.forEach { u ->
-                            Box(Modifier.clip(RoundedCornerShape(50)).background(c.flowOutSoft).padding(horizontal = 10.dp, vertical = 5.dp)) {
-                                Text("${u.name} · ${u.owner} · ${floorLabel(u.floor)}", color = c.flowOut, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                Section("Still due · ${r.unpaid.size}") {
+                    r.unpaid.forEach { u ->
+                        Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("${u.owner} · ${floorLabel(u.floor)} · ${u.name}", style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                                if (u.partial) {
+                                    Text("partial · paid ${dualString(u.paid)}", color = c.warn, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text("remaining", color = c.textTertiary, style = MaterialTheme.typography.labelSmall)
+                                DualMoney(u.remaining, compact = true, style = MaterialTheme.typography.bodySmall, weight = FontWeight.SemiBold)
                             }
                         }
                     }
